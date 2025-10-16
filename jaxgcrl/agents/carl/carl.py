@@ -16,9 +16,9 @@ from etils import epath
 from flax.struct import dataclass
 from flax.training.train_state import TrainState
 
-from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import ActorEvaluator
-from utils.replay_buffer import TrajectoryUniformSamplingQueue
+from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
+from jaxgcrl.utils.evaluator import ActorEvaluator
+from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic, update_op_actor_and_alpha, update_op_critic
 from .networks import Actor, Encoder
@@ -29,7 +29,6 @@ Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
 ############################################
-GCARL=True
 
 @dataclass
 class TrainingState:
@@ -222,10 +221,7 @@ class CARL:
         env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
         num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length)
-        num_training_steps_per_epoch = 40
-        #(
-        #    config.total_env_steps - num_prefill_env_steps
-        #) // (config.num_evals * env_steps_per_actor_step)
+        num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (config.num_evals * env_steps_per_actor_step)
 
         assert (
             num_training_steps_per_epoch > 0
@@ -243,31 +239,21 @@ class CARL:
             "num_training_steps_per_epoch: %d",
             num_training_steps_per_epoch,
         )
+
+        # if GCARL: ###############################################################
+        random.seed(config.seed)
+        np.random.seed(config.seed)
+        key = jax.random.PRNGKey(config.seed)
+        (
+            key, op_key, buffer_key, op_buffer_key, eval_env_key, env_key, actor_key, op_actor_key, sa_key, op_sa_key,
+            g_key, op_g_key
+        ) = jax.random.split(key, 12)
+        
+
+        env_keys = jax.random.split(env_key, config.num_envs)
+        env_state = jax.jit(train_env.reset)(env_keys)
+        train_env.step = jax.jit(train_env.step)
         ###############################################################
-        if GCARL:
-            random.seed(config.seed)
-            np.random.seed(config.seed)
-            key = jax.random.PRNGKey(config.seed)
-            (
-                key, op_key, buffer_key, op_buffer_key, eval_env_key, env_key, actor_key, op_actor_key, sa_key, op_sa_key,
-                g_key, op_g_key
-            ) = jax.random.split(key, 12)
-            
-
-            env_keys = jax.random.split(env_key, config.num_envs)
-            env_state = jax.jit(train_env.reset)(env_keys)
-            train_env.step = jax.jit(train_env.step)
-        else:
-            random.seed(config.seed)
-            np.random.seed(config.seed)
-            key = jax.random.PRNGKey(config.seed)
-            key, buffer_key, eval_env_key, env_key, actor_key, sa_key, g_key = (
-                jax.random.split(key, 7)
-            )
-
-            env_keys = jax.random.split(env_key, config.num_envs)
-            env_state = jax.jit(train_env.reset)(env_keys)
-            train_env.step = jax.jit(train_env.step)
 
         # Dimensions definitions and sanity checks
         action_size = train_env.action_size
@@ -293,21 +279,22 @@ class CARL:
             tx=optax.adam(learning_rate=self.policy_lr),
         )
 
-        ####################################################
+        
+        # if GCARL: ###############################################################
         # Opposing Actor
-        if GCARL:
-            op_actor = Actor(
-                action_size=action_size,
-                network_width=self.h_dim,
-                network_depth=self.n_hidden,
-                skip_connections=self.skip_connections,
-                use_relu=self.use_relu,
-            )
-            op_actor_state = TrainState.create(
-            apply_fn=op_actor.apply,
-            params=op_actor.init(op_actor_key, np.ones([1, obs_size])),
-            tx=optax.adam(learning_rate=self.policy_lr),
-            )
+        op_actor = Actor(
+            action_size=action_size,
+            network_width=self.h_dim,
+            network_depth=self.n_hidden,
+            skip_connections=self.skip_connections,
+            use_relu=self.use_relu,
+        )
+        op_actor_state = TrainState.create(
+        apply_fn=op_actor.apply,
+        params=op_actor.init(op_actor_key, np.ones([1, obs_size])),
+        tx=optax.adam(learning_rate=self.policy_lr),
+        )
+        ###############################################################
 
         # Critic
         sa_encoder = Encoder(
@@ -336,34 +323,34 @@ class CARL:
             tx=optax.adam(learning_rate=self.critic_lr),
         )
         
-        ####################################################
+        # if GCARL: ###############################################################
         # Opposing Critic
-        if GCARL:
-            op_sa_encoder = Encoder(
-                repr_dim=self.repr_dim,
-                network_width=self.h_dim,
-                network_depth=self.n_hidden,
-                skip_connections=self.skip_connections,
-                use_relu=self.use_relu,
-                use_ln=self.use_ln,
-            )
-            op_sa_encoder_params = op_sa_encoder.init(
-                op_sa_key, np.ones([1, state_size + 2*action_size])
-            )
-            op_g_encoder = Encoder(
-                repr_dim=self.repr_dim,
-                network_width=self.h_dim,
-                network_depth=self.n_hidden,
-                skip_connections=self.skip_connections,
-                use_relu=self.use_relu,
-                use_ln=self.use_ln,
-            )
-            op_g_encoder_params = op_g_encoder.init(op_g_key, np.ones([1, goal_size]))
-            op_critic_state = TrainState.create(
-                apply_fn=None,
-                params={"sa_encoder": op_sa_encoder_params, "g_encoder": op_g_encoder_params},
-                tx=optax.adam(learning_rate=self.critic_lr),
+        op_sa_encoder = Encoder(
+            repr_dim=self.repr_dim,
+            network_width=self.h_dim,
+            network_depth=self.n_hidden,
+            skip_connections=self.skip_connections,
+            use_relu=self.use_relu,
+            use_ln=self.use_ln,
         )
+        op_sa_encoder_params = op_sa_encoder.init(
+            op_sa_key, np.ones([1, state_size + 2*action_size])
+        )
+        op_g_encoder = Encoder(
+            repr_dim=self.repr_dim,
+            network_width=self.h_dim,
+            network_depth=self.n_hidden,
+            skip_connections=self.skip_connections,
+            use_relu=self.use_relu,
+            use_ln=self.use_ln,
+        )
+        op_g_encoder_params = op_g_encoder.init(op_g_key, np.ones([1, goal_size]))
+        op_critic_state = TrainState.create(
+            apply_fn=None,
+            params={"sa_encoder": op_sa_encoder_params, "g_encoder": op_g_encoder_params},
+            tx=optax.adam(learning_rate=self.critic_lr),
+        )
+        ###############################################################
             
         # Entropy coefficient
         target_entropy = -0.5 * action_size
@@ -437,22 +424,22 @@ class CARL:
         )
         buffer_state = jax.jit(replay_buffer.init)(buffer_key)
 
-        ####################################################
-        if GCARL:
-            op_replay_buffer = jit_wrap(
-                TrajectoryUniformSamplingQueue(
-                    max_replay_size=self.max_replay_size,
-                    dummy_data_sample=dummy_transition,
-                    sample_batch_size=self.batch_size,
-                    num_envs=config.num_envs,
-                    episode_length=config.episode_length,
-                )
+        # if GCARL: ####################################################
+        op_replay_buffer = jit_wrap(
+            TrajectoryUniformSamplingQueue(
+                max_replay_size=self.max_replay_size,
+                dummy_data_sample=dummy_transition,
+                sample_batch_size=self.batch_size,
+                num_envs=config.num_envs,
+                episode_length=config.episode_length,
             )
-            op_buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        )
+        op_buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        ####################################################
 
         ########################################################
         # GCARL Deterministic Actor Step
-        #if GCARL:
+        #if GCARL: ####################################################
          #   def deterministic_actor_step(training_state, op_training_state, env, env_state, extra_fields):
            #     means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
              #   op_means, _ = op_actor.apply(op_training_state.actor_state.params)
@@ -471,6 +458,7 @@ class CARL:
                 #    extras={"state_extras": state_extras,
                 #            "other_actions" : op_actions    },
                 #)
+        ####################################################
         #else:
         def deterministic_actor_step(training_state, env, env_state, extra_fields):
             means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
@@ -488,245 +476,181 @@ class CARL:
             )
         ##########################################################
         # GCARL Actor Step
-        if GCARL:
-            def actor_step(actor_state, op_actor_state, env, env_state, key, extra_fields):
-                means, log_stds = actor.apply(actor_state.params, env_state.obs)
-                op_means, _ = op_actor.apply(op_actor_state.params, env_state.obs)
-                stds = jnp.exp(log_stds)
-                actions = nn.tanh(
-                    means
-                    + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
-                )
-                op_actions = self.damping*nn.tanh(op_means)
-                net_action = actions + op_actions
-                
-                nstate = env.step(env_state, net_action)
-                state_extras = {x: nstate.info[x] for x in extra_fields}
+        # if GCARL: ####################################################
+        def actor_step(actor_state, op_actor_state, env, env_state, key, extra_fields):
+            means, log_stds = actor.apply(actor_state.params, env_state.obs)
+            op_means, _ = op_actor.apply(op_actor_state.params, env_state.obs)
+            stds = jnp.exp(log_stds)
+            actions = nn.tanh(
+                means
+                + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
+            )
+            op_actions = self.damping*nn.tanh(op_means)
+            net_action = actions + op_actions
+            
+            nstate = env.step(env_state, net_action)
+            state_extras = {x: nstate.info[x] for x in extra_fields}
 
-                return nstate, Transition(
-                    observation=env_state.obs,
-                    action=actions,
-                    reward=nstate.reward,
-                    discount=1 - nstate.done,
-                    extras={"state_extras": state_extras,
-                            "other_actions" : op_actions    },
-                )
-        else:
-            def actor_step(actor_state, env, env_state, key, extra_fields):
-                means, log_stds = actor.apply(actor_state.params, env_state.obs)
-                stds = jnp.exp(log_stds)
-                actions = nn.tanh(
-                    means
-                    + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
-                )
-    
-                nstate = env.step(env_state, actions)
-                state_extras = {x: nstate.info[x] for x in extra_fields}
-    
-                return nstate, Transition(
-                    observation=env_state.obs,
-                    action=actions,
-                    reward=nstate.reward,
-                    discount=1 - nstate.done,
-                    extras={"state_extras": state_extras},
-                )
+            return nstate, Transition(
+                observation=env_state.obs,
+                action=actions,
+                reward=nstate.reward,
+                discount=1 - nstate.done,
+                extras={"state_extras": state_extras,
+                        "other_actions" : op_actions    },
+            )
+        ####################################################
                 
         ########################################################
+        # if GCARL: ####################################################
         # GCARL Deterministic Op Actor Step
-        if GCARL:
-            def deterministic_op_actor_step(training_state, env, env_state, extra_fields):
-                means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
-                op_means, _ = op_actor.apply(training_state.actor_state)
-                actions = nn.tanh(means)
-                op_actions = self.damping*nn.tanh(op_means)
-                net_action = actions + op_actions
+        def deterministic_op_actor_step(training_state, env, env_state, extra_fields):
+            means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
+            op_means, _ = op_actor.apply(training_state.actor_state)
+            actions = nn.tanh(means)
+            op_actions = self.damping*nn.tanh(op_means)
+            net_action = actions + op_actions
 
-                nstate = env.step(env_state, net_action)
-                state_extras = {x: nstate.info[x] for x in extra_fields}
+            nstate = env.step(env_state, net_action)
+            state_extras = {x: nstate.info[x] for x in extra_fields}
 
-                return nstate, Transition(
-                    observation=env_state.obs,
-                    action=op_actions,
-                    reward=nstate.reward,
-                    discount=1 - nstate.done,
-                    extras={"state_extras": state_extras,
-                            "other_actions" : actions          },
-                )
+            return nstate, Transition(
+                observation=env_state.obs,
+                action=op_actions,
+                reward=nstate.reward,
+                discount=1 - nstate.done,
+                extras={"state_extras": state_extras,
+                        "other_actions" : actions          },
+            )
+        ####################################################
                 
-        ##########################################################
+        
+        # if GCARL: ########################################################
         # GCARL Op Actor Step
-        if GCARL:
-            def op_actor_step(actor_state, op_actor_state, env, env_state, key, extra_fields):
-                means, _ = actor.apply(actor_state.params, env_state.obs)
-                op_means, op_log_stds = op_actor.apply(op_actor_state.params, env_state.obs)
-                op_stds = jnp.exp(op_log_stds)
-                op_actions = self.damping* nn.tanh(
-                    op_means
-                    + op_stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
-                )
-                actions = nn.tanh(means)
-                net_action = actions + op_actions
-                
-                nstate = env.step(env_state, net_action)
-                state_extras = {x: nstate.info[x] for x in extra_fields}
+        def op_actor_step(actor_state, op_actor_state, env, env_state, key, extra_fields):
+            means, _ = actor.apply(actor_state.params, env_state.obs)
+            op_means, op_log_stds = op_actor.apply(op_actor_state.params, env_state.obs)
+            op_stds = jnp.exp(op_log_stds)
+            op_actions = self.damping* nn.tanh(
+                op_means
+                + op_stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
+            )
+            actions = nn.tanh(means)
+            net_action = actions + op_actions
+            
+            nstate = env.step(env_state, net_action)
+            state_extras = {x: nstate.info[x] for x in extra_fields}
 
-                return nstate, Transition(
-                    observation=env_state.obs,
-                    action=op_actions,
-                    reward=nstate.reward,
-                    discount=1 - nstate.done,
-                    extras={"state_extras": state_extras,
-                            "other_actions" : actions    },
-                )
-
+            return nstate, Transition(
+                observation=env_state.obs,
+                action=op_actions,
+                reward=nstate.reward,
+                discount=1 - nstate.done,
+                extras={"state_extras": state_extras,
+                        "other_actions" : actions    },
+            )
+        ########################################################
     
             
-        ################################################
-        if GCARL:
-            def get_experience(actor_state, op_actor_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused_t):
-                    env_state, current_key = carry
-                    current_key, next_key = jax.random.split(current_key)
-                    env_state, transition = actor_step(
-                        actor_state,
-                        op_actor_state,
-                        train_env,
-                        env_state,
-                        current_key,
-                        extra_fields=("truncation", "traj_id"),
-                    )
-                    return (env_state, next_key), transition
-
-                (env_state, _), data = jax.lax.scan(
-                    f, (env_state, key), (), length=self.unroll_length
-                )
-
-
-                buffer_state = replay_buffer.insert(buffer_state, data)
-                return env_state, buffer_state
-
-            def get_op_experience(actor_state, op_actor_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused_t):
-                    env_state, current_key = carry
-                    current_key, next_key = jax.random.split(current_key)
-                    env_state, transition = op_actor_step(
-                        actor_state,
-                        op_actor_state,
-                        train_env,
-                        env_state,
-                        current_key,
-                        extra_fields=("truncation", "traj_id"),
-                    )
-                    return (env_state, next_key), transition
-
-                (env_state, _), data = jax.lax.scan(
-                    f, (env_state, key), (), length=self.unroll_length
-                )
-
-                buffer_state = replay_buffer.insert(buffer_state, data)
-                return env_state, buffer_state
-        else:
+        # if GCARL: ################################################
+        def get_experience(actor_state, op_actor_state, env_state, buffer_state, key):
             @jax.jit
-            def get_experience(actor_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused_t):
-                    env_state, current_key = carry
-                    current_key, next_key = jax.random.split(current_key)
-                    env_state, transition = actor_step(
-                        actor_state,
-                        train_env,
-                        env_state,
-                        current_key,
-                        extra_fields=("truncation", "traj_id"),
-                    )
-                    return (env_state, next_key), transition
-    
-                (env_state, _), data = jax.lax.scan(
-                    f, (env_state, key), (), length=self.unroll_length
+            def f(carry, unused_t):
+                env_state, current_key = carry
+                current_key, next_key = jax.random.split(current_key)
+                env_state, transition = actor_step(
+                    actor_state,
+                    op_actor_state,
+                    train_env,
+                    env_state,
+                    current_key,
+                    extra_fields=("truncation", "traj_id"),
                 )
+                return (env_state, next_key), transition
+
+            (env_state, _), data = jax.lax.scan(
+                f, (env_state, key), (), length=self.unroll_length
+            )
+
+
+            buffer_state = replay_buffer.insert(buffer_state, data)
+            return env_state, buffer_state
+
+        def get_op_experience(actor_state, op_actor_state, env_state, buffer_state, key):
+            @jax.jit
+            def f(carry, unused_t):
+                env_state, current_key = carry
+                current_key, next_key = jax.random.split(current_key)
+                env_state, transition = op_actor_step(
+                    actor_state,
+                    op_actor_state,
+                    train_env,
+                    env_state,
+                    current_key,
+                    extra_fields=("truncation", "traj_id"),
+                )
+                return (env_state, next_key), transition
+
+            (env_state, _), data = jax.lax.scan(
+                f, (env_state, key), (), length=self.unroll_length
+            )
+
+            buffer_state = replay_buffer.insert(buffer_state, data)
+            return env_state, buffer_state
+        ################################################
     
-                buffer_state = replay_buffer.insert(buffer_state, data)
-                return env_state, buffer_state
+        # if GCARL: ################################################
+        def prefill_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
+            @jax.jit
+            def f(carry, unused):
+                del unused
+                training_state, env_state, buffer_state, key = carry
+                key, new_key = jax.random.split(key)
+                env_state, buffer_state = get_experience(
+                    training_state.actor_state,
+                    op_training_state.actor_state,
+                    env_state,
+                    buffer_state,
+                    key,
+                )
+                training_state = training_state.replace(
+                    env_steps=training_state.env_steps + env_steps_per_actor_step,
+                )
+                return (training_state, env_state, buffer_state, new_key), ()
 
+            return jax.lax.scan(
+                f,
+                (training_state, env_state, buffer_state, key),
+                (),
+                length=num_prefill_actor_steps,
+            )[0]
+            
+        def prefill_op_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
+            @jax.jit
+            def f(carry, unused):
+                del unused
+                op_training_state, env_state, buffer_state, key = carry
+                key, new_key = jax.random.split(key)
+                env_state, buffer_state = get_op_experience(
+                    training_state.actor_state,
+                    op_training_state.actor_state,
+                    env_state,
+                    buffer_state,
+                    key,
+                )
+                op_training_state = op_training_state.replace(
+                    env_steps=op_training_state.env_steps + env_steps_per_actor_step,
+                )
+                return (op_training_state, env_state, buffer_state, new_key), ()
 
-        ########################################################
-        if GCARL:
-            def prefill_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused):
-                    del unused
-                    training_state, env_state, buffer_state, key = carry
-                    key, new_key = jax.random.split(key)
-                    env_state, buffer_state = get_experience(
-                        training_state.actor_state,
-                        op_training_state.actor_state,
-                        env_state,
-                        buffer_state,
-                        key,
-                    )
-                    training_state = training_state.replace(
-                        env_steps=training_state.env_steps + env_steps_per_actor_step,
-                    )
-                    return (training_state, env_state, buffer_state, new_key), ()
-
-                return jax.lax.scan(
-                    f,
-                    (training_state, env_state, buffer_state, key),
-                    (),
-                    length=num_prefill_actor_steps,
-                )[0]
-                
-            def prefill_op_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused):
-                    del unused
-                    op_training_state, env_state, buffer_state, key = carry
-                    key, new_key = jax.random.split(key)
-                    env_state, buffer_state = get_op_experience(
-                        training_state.actor_state,
-                        op_training_state.actor_state,
-                        env_state,
-                        buffer_state,
-                        key,
-                    )
-                    op_training_state = op_training_state.replace(
-                        env_steps=op_training_state.env_steps + env_steps_per_actor_step,
-                    )
-                    return (op_training_state, env_state, buffer_state, new_key), ()
-
-                return jax.lax.scan(
-                    f,
-                    (op_training_state, env_state, buffer_state, key),
-                    (),
-                    length=num_prefill_actor_steps,
-                )[0]
-        else:
-            def prefill_replay_buffer(training_state, env_state, buffer_state, key):
-                @jax.jit
-                def f(carry, unused):
-                    del unused
-                    training_state, env_state, buffer_state, key = carry
-                    key, new_key = jax.random.split(key)
-                    env_state, buffer_state = get_experience(
-                        training_state.actor_state,
-                        env_state,
-                        buffer_state,
-                        key,
-                    )
-                    training_state = training_state.replace(
-                        env_steps=training_state.env_steps + env_steps_per_actor_step,
-                    )
-                    return (training_state, env_state, buffer_state, new_key), ()
-    
-                return jax.lax.scan(
-                    f,
-                    (training_state, env_state, buffer_state, key),
-                    (),
-                    length=num_prefill_actor_steps,
-                )[0]
-
+            return jax.lax.scan(
+                f,
+                (op_training_state, env_state, buffer_state, key),
+                (),
+                length=num_prefill_actor_steps,
+            )[0]
+        ################################################
+        
         @jax.jit
         def update_networks(carry, transitions):
             training_state, key = carry
@@ -768,320 +692,234 @@ class CARL:
                 key,
             ), metrics
 
-        ######################################################
-        if GCARL:
-            @jax.jit
-            def update_op_networks(carry, transitions):
-                training_state, key = carry
-                op_key, op_critic_key, op_actor_key = jax.random.split(key, 3)
+        # if GCARL: ################################################
+        @jax.jit
+        def update_op_networks(carry, transitions):
+            training_state, key = carry
+            op_key, op_critic_key, op_actor_key = jax.random.split(key, 3)
 
-                context = dict(
-                    **vars(self),
-                    **vars(config),
-                    state_size=state_size,
-                    action_size=action_size,
-                    goal_size=goal_size,
-                    obs_size=obs_size,
-                    goal_indices=train_env.goal_indices,
-                    target_entropy=target_entropy,
-                    op_target_entropy=op_target_entropy,
-                )
+            context = dict(
+                **vars(self),
+                **vars(config),
+                state_size=state_size,
+                action_size=action_size,
+                goal_size=goal_size,
+                obs_size=obs_size,
+                goal_indices=train_env.goal_indices,
+                target_entropy=target_entropy,
+                op_target_entropy=op_target_entropy,
+            )
 
-                networks = dict(
-                    actor=op_actor,
-                    sa_encoder=op_sa_encoder,
-                    g_encoder=op_g_encoder,
-                )
+            networks = dict(
+                actor=op_actor,
+                sa_encoder=op_sa_encoder,
+                g_encoder=op_g_encoder,
+            )
 
-                op_training_state, op_actor_metrics = update_op_actor_and_alpha(
-                    context, networks, transitions, training_state, op_actor_key
-                )
-                op_training_state, op_critic_metrics = update_op_critic(
-                    context, networks, transitions, training_state, op_critic_key
-                )
-                op_training_state = op_training_state.replace(
-                    gradient_steps=op_training_state.gradient_steps + 1
-                )
+            op_training_state, op_actor_metrics = update_op_actor_and_alpha(
+                context, networks, transitions, training_state, op_actor_key
+            )
+            op_training_state, op_critic_metrics = update_op_critic(
+                context, networks, transitions, training_state, op_critic_key
+            )
+            op_training_state = op_training_state.replace(
+                gradient_steps=op_training_state.gradient_steps + 1
+            )
 
-                metrics = {}
-                metrics.update(op_actor_metrics)
-                metrics.update(op_critic_metrics)
+            metrics = {}
+            metrics.update(op_actor_metrics)
+            metrics.update(op_critic_metrics)
 
-                return (
-                    training_state,
-                    key,
-                ), metrics
-
-        ###########################################################
-        if GCARL:
-            @jax.jit
-            def training_step(training_state, op_training_state, env_state, buffer_state, key):
-                experience_key1, experience_key2, sampling_key, training_key = (
-                    jax.random.split(key, 4)
-                )
-
-                # update buffer
-                env_state, buffer_state = get_experience(
-                    training_state.actor_state,
-                    op_training_state.actor_state,
-                    env_state,
-                    buffer_state,
-                    experience_key1,
-                )
-
-                training_state = training_state.replace(
-                    env_steps=training_state.env_steps + env_steps_per_actor_step,
-                )
-
-                # sample actor-step worth of transitions
-                buffer_state, transitions = replay_buffer.sample(buffer_state)
-
-                # process transitions for training
-                batch_keys = jax.random.split(
-                    sampling_key, transitions.observation.shape[0]
-                )
-                transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
-                    (self.discounting, state_size, tuple(train_env.goal_indices)),
-                    transitions,
-                    batch_keys,
-                )
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
-                )
-
-                # permute transitions
-                permutation = jax.random.permutation(
-                    experience_key2, len(transitions.observation)
-                )
-                transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
-                    transitions,
-                )
-
-                # take actor-step worth of training-step
-                (
-                    training_state,
-                    _,
-                ), metrics = jax.lax.scan(
-                    update_networks, (training_state, training_key), transitions
-                )
-
-                return (
-                    training_state,
-                    env_state,
-                    buffer_state,
-                ), metrics
-
-            @jax.jit
-            def op_training_step(training_state, op_training_state, env_state, buffer_state, key):
-                op_experience_key1, op_experience_key2, op_sampling_key, op_training_key = (
-                    jax.random.split(key, 4)
-                )
-
-                # update buffer
-                env_state, buffer_state = get_op_experience(
-                    training_state.actor_state,
-                    op_training_state.actor_state,
-                    env_state,
-                    buffer_state,
-                    op_experience_key1,
-                )
-
-                op_training_state = op_training_state.replace(
-                    env_steps=op_training_state.env_steps + env_steps_per_actor_step,
-                )
-
-                # sample actor-step worth of transitions
-                buffer_state, transitions = op_replay_buffer.sample(buffer_state)
-
-                # process transitions for training
-                op_batch_keys = jax.random.split(
-                    op_sampling_key, transitions.observation.shape[0]
-                )
-                transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
-                    (self.discounting, state_size, tuple(train_env.goal_indices)),
-                    transitions,
-                    op_batch_keys,
-                )
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
-                )
-
-                # permute transitions
-                permutation = jax.random.permutation(
-                    op_experience_key2, len(transitions.observation)
-                )
-                transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
-                    transitions,
-                )
-
-                # take actor-step worth of training-step
-                (
-                    op_training_state,
-                    _,
-                ), metrics = jax.lax.scan(
-                    update_op_networks, (op_training_state, op_training_key), transitions
-                )
-
-                return (
-                    op_training_state,
-                    env_state,
-                    buffer_state,
-                ), metrics
-        else:
-            @jax.jit
-            def training_step(training_state, env_state, buffer_state, key):
-                experience_key1, experience_key2, sampling_key, training_key = (
-                    jax.random.split(key, 4)
-                )
-    
-                # update buffer
-                env_state, buffer_state = get_experience(
-                    training_state.actor_state,
-                    env_state,
-                    buffer_state,
-                    experience_key1,
-                )
-    
-                training_state = training_state.replace(
-                    env_steps=training_state.env_steps + env_steps_per_actor_step,
-                )
-    
-                # sample actor-step worth of transitions
-                buffer_state, transitions = replay_buffer.sample(buffer_state)
-    
-                # process transitions for training
-                batch_keys = jax.random.split(
-                    sampling_key, transitions.observation.shape[0]
-                )
-                transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
-                    (self.discounting, state_size, tuple(train_env.goal_indices)),
-                    transitions,
-                    batch_keys,
-                )
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
-                )
-    
-                # permute transitions
-                permutation = jax.random.permutation(
-                    experience_key2, len(transitions.observation)
-                )
-                transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
-                transitions = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
-                    transitions,
-                )
-    
-                # take actor-step worth of training-step
-                (
-                    training_state,
-                    _,
-                ), metrics = jax.lax.scan(
-                    update_networks, (training_state, training_key), transitions
-                )
-    
-                return (
-                    training_state,
-                    env_state,
-                    buffer_state,
-                ), metrics
-
-        ##############################################################
-        if GCARL:
-            #@jax.jit
-            def training_epoch(
+            return (
                 training_state,
+                key,
+            ), metrics
+        ################################################
+
+        # if GCARL: ################################################
+        @jax.jit
+        def training_step(training_state, op_training_state, env_state, buffer_state, key):
+            experience_key1, experience_key2, sampling_key, training_key = (
+                jax.random.split(key, 4)
+            )
+
+            # update buffer
+            env_state, buffer_state = get_experience(
+                training_state.actor_state,
+                op_training_state.actor_state,
+                env_state,
+                buffer_state,
+                experience_key1,
+            )
+
+            training_state = training_state.replace(
+                env_steps=training_state.env_steps + env_steps_per_actor_step,
+            )
+
+            # sample actor-step worth of transitions
+            buffer_state, transitions = replay_buffer.sample(buffer_state)
+
+            # process transitions for training
+            batch_keys = jax.random.split(
+                sampling_key, transitions.observation.shape[0]
+            )
+            transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
+                (self.discounting, state_size, tuple(train_env.goal_indices)),
+                transitions,
+                batch_keys,
+            )
+            transitions = jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
+            )
+
+            # permute transitions
+            permutation = jax.random.permutation(
+                experience_key2, len(transitions.observation)
+            )
+            transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
+            transitions = jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
+                transitions,
+            )
+
+            # take actor-step worth of training-step
+            (
+                training_state,
+                _,
+            ), metrics = jax.lax.scan(
+                update_networks, (training_state, training_key), transitions
+            )
+
+            return (
+                training_state,
+                env_state,
+                buffer_state,
+            ), metrics
+
+        @jax.jit
+        def op_training_step(training_state, op_training_state, env_state, buffer_state, key):
+            op_experience_key1, op_experience_key2, op_sampling_key, op_training_key = (
+                jax.random.split(key, 4)
+            )
+
+            # update buffer
+            env_state, buffer_state = get_op_experience(
+                training_state.actor_state,
+                op_training_state.actor_state,
+                env_state,
+                buffer_state,
+                op_experience_key1,
+            )
+
+            op_training_state = op_training_state.replace(
+                env_steps=op_training_state.env_steps + env_steps_per_actor_step,
+            )
+
+            # sample actor-step worth of transitions
+            buffer_state, transitions = op_replay_buffer.sample(buffer_state)
+
+            # process transitions for training
+            op_batch_keys = jax.random.split(
+                op_sampling_key, transitions.observation.shape[0]
+            )
+            transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
+                (self.discounting, state_size, tuple(train_env.goal_indices)),
+                transitions,
+                op_batch_keys,
+            )
+            transitions = jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
+            )
+
+            # permute transitions
+            permutation = jax.random.permutation(
+                op_experience_key2, len(transitions.observation)
+            )
+            transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
+            transitions = jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
+                transitions,
+            )
+
+            # take actor-step worth of training-step
+            (
+                op_training_state,
+                _,
+            ), metrics = jax.lax.scan(
+                update_op_networks, (op_training_state, op_training_key), transitions
+            )
+
+            return (
                 op_training_state,
                 env_state,
                 buffer_state,
-                op_buffer_state,
-                key,
-            ):
-                print("Training epoch: entered")
-                #@jax.jit
-                def f(carry, unused_t):
-                    ts, op_ts, es, bs, op_bs, k = carry
-                    k, train_key = jax.random.split(k, 2)
-                    print("training_step: before call")
-                    try:
-                        
-                        (
-                            ts,
-                            es,
-                            bs,
-                        ), metrics = training_step(ts, op_ts, es, bs, train_key)
-                    except Exception as e:
-                        print(f"training_step: exception - {e}")
-                    return (ts, op_ts, es, bs, op_bs, k), metrics
+            ), metrics
+        ################################################
 
-                #@jax.jit
-                def g(carry, unused_t):
-                    ts, op_ts, es, bs, op_bs, k = carry
-                    k, train_key = jax.random.split(k, 2)
-                    print("Training epoch: about to call op_training_step")
-                    (
-                        op_ts,
-                        es,
-                        op_bs,
-                    ), op_metrics = op_training_step(ts, op_ts, es, op_bs, train_key)
-                    print("Training epoch: op_training_step returned")
-                    return (ts, op_ts, es, bs, op_bs, k), op_metrics
-
-                print("Training epoch: about to scan training_step")
-
-                (
-                    (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key), metrics
-                ) = jax.lax.scan(
-                    f,
-                    (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key),
-                    (),
-                    length=num_training_steps_per_epoch,
-                )
-
-                (
-                    (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key), op_metrics
-                ) = jax.lax.scan(
-                    g,
-                    (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key),
-                    (),
-                    length=num_training_steps_per_epoch,
-                )
-
-                metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-                op_metrics["buffer_current_size"] = op_replay_buffer.size(op_buffer_state)
-                return training_state, op_training_state, env_state, buffer_state, op_buffer_state, metrics, op_metrics
-        else:
-            @jax.jit
-            def training_epoch(
-                training_state,
-                env_state,
-                buffer_state,
-                key,
-            ):
-                @jax.jit
-                def f(carry, unused_t):
-                    ts, es, bs, k = carry
-                    k, train_key = jax.random.split(k, 2)
+        # if GCARL: ################################################
+        #@jax.jit
+        def training_epoch(
+            training_state,
+            op_training_state,
+            env_state,
+            buffer_state,
+            op_buffer_state,
+            key,
+        ):
+            print("Training epoch: entered")
+            #@jax.jit
+            def f(carry, unused_t):
+                ts, op_ts, es, bs, op_bs, k = carry
+                k, train_key = jax.random.split(k, 2)
+                print("training_step: before call")
+                try:
+                    
                     (
                         ts,
                         es,
                         bs,
-                    ), metrics = training_step(ts, es, bs, train_key)
-                    return (ts, es, bs, k), metrics
-    
-                (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
-                    f,
-                    (training_state, env_state, buffer_state, key),
-                    (),
-                    length=num_training_steps_per_epoch,
-                )
-    
-                metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-                return training_state, env_state, buffer_state, metrics
+                    ), metrics = training_step(ts, op_ts, es, bs, train_key)
+                except Exception as e:
+                    print(f"training_step: exception - {e}")
+                return (ts, op_ts, es, bs, op_bs, k), metrics
+
+            #@jax.jit
+            def g(carry, unused_t):
+                ts, op_ts, es, bs, op_bs, k = carry
+                k, train_key = jax.random.split(k, 2)
+                print("Training epoch: about to call op_training_step")
+                (
+                    op_ts,
+                    es,
+                    op_bs,
+                ), op_metrics = op_training_step(ts, op_ts, es, op_bs, train_key)
+                print("Training epoch: op_training_step returned")
+                return (ts, op_ts, es, bs, op_bs, k), op_metrics
+
+            print("Training epoch: about to scan training_step")
+
+            (
+                (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key), metrics
+            ) = jax.lax.scan(
+                f,
+                (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key),
+                (),
+                length=num_training_steps_per_epoch,
+            )
+
+            (
+                (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key), op_metrics
+            ) = jax.lax.scan(
+                g,
+                (training_state, op_training_state, env_state, buffer_state, op_buffer_state, key),
+                (),
+                length=num_training_steps_per_epoch,
+            )
+
+            metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+            op_metrics["buffer_current_size"] = op_replay_buffer.size(op_buffer_state)
+            return training_state, op_training_state, env_state, buffer_state, op_buffer_state, metrics, op_metrics
+        ################################################
 
         
         key, prefill_key, op_prefill_key = jax.random.split(key, 3)
