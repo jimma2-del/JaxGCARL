@@ -7,6 +7,7 @@ from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from jax import numpy as jnp
+from agents.crl.noise import noise
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
@@ -72,6 +73,8 @@ class Ant(PipelineEnv):
         self.goal_reach_thresh = 0.5
         self.goal_distance = goal_distance
         self.randomize_start = randomize_start
+        self._noise_std = 1.0    # standard-normal
+        self._noise_clip = 2.0   # clip at ±2σ
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -169,15 +172,29 @@ class Ant(PipelineEnv):
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
         # remove target q, qd
-        qpos = pipeline_state.q[:-2]
-        qvel = pipeline_state.qd[:-2]
+        if not noise:
+            qpos = pipeline_state.q[:-2]
+            qvel = pipeline_state.qd[:-2]
 
-        target_pos = pipeline_state.x.pos[-1][:2]
+            target_pos = pipeline_state.x.pos[-1][:2]
 
-        if self._exclude_current_positions_from_observation:
-            qpos = qpos[2:]
+            if self._exclude_current_positions_from_observation:
+                qpos = qpos[2:]
 
-        return jnp.concatenate([qpos] + [qvel] + [target_pos])
+            return jnp.concatenate([qpos] + [qvel] + [target_pos])
+
+        if noise:
+            """Observe ant body position and velocities, plus clipped N(0,1) noise."""
+            qpos = pipeline_state.q[:-2]
+            qvel = pipeline_state.qd[:-2]
+            target_pos = pipeline_state.x.pos[-1][:2]
+            if self._exclude_current_positions_from_observation:
+                qpos = qpos[2:]
+
+            obs = jnp.concatenate([qpos, qvel, target_pos])
+            raw = jax.random.normal(jax.random.PRNGKey(0), obs.shape)
+            clipped = jnp.clip(raw, a_min=-self._noise_clip, a_max=self._noise_clip)
+            return obs + clipped
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
         """Returns a target location in a random circle slightly above xy plane."""

@@ -1,7 +1,7 @@
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-
+from noise import noise
 ##################################
 GCARL=True
 
@@ -106,6 +106,7 @@ if GCARL:
         }
 
         return training_state, metrics
+
     def update_op_actor_and_alpha(config, networks, transitions, training_state, key):
         def op_actor_loss(actor_params, critic_params, log_alpha, transitions, key):
             obs = (
@@ -123,7 +124,7 @@ if GCARL:
                 key, shape=means.shape, dtype=means.dtype
             )
             # damping
-            op_action = 0.1*nn.tanh(x_ts)
+            op_action = 0.1 * nn.tanh(x_ts) #FIX
             log_prob = jax.scipy.stats.norm.logpdf(x_ts, loc=means, scale=stds)
             log_prob -= jnp.log((1 - jnp.square(action)) + 1e-6)
             log_prob = log_prob.sum(-1)  # dimension = B
