@@ -23,7 +23,7 @@ from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 from .losses import update_actor_and_alpha, update_critic, update_op_actor_and_alpha, update_op_critic
 from .networks import Actor, Encoder
 import functools
-from noise import noise
+import noise
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -154,7 +154,7 @@ class CRL:
     discounting: float = 0.99
     
     ##################################
-    damping: float = 0.1
+    damping: float = noise.damping
     
     # forward CRL logsumexp penalty
     logsumexp_penalty_coeff: float = 0.1
@@ -1103,7 +1103,7 @@ class CRL:
 
         training_walltime = 0
         logging.info("starting training....")
-        noise = False
+        noise.noise = False
         for ne in range(config.num_evals):
             print(f"Entered training loop at eval {ne}")
             logging.info(f"Entered training loop at eval {ne}")
@@ -1142,9 +1142,9 @@ class CRL:
             }
             current_step = int(training_state.env_steps.item())
             try:
-                noise = True
+                noise.noise = True
                 metrics = evaluator.run_evaluation(training_state, metrics)
-                noise = False
+                noise.noise = False
             except Exception as e:
                 logging.error(f"Error in evaluator: {e}", exc_info=True)
                 raise
