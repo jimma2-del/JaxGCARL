@@ -251,8 +251,10 @@ class CARL:
         
 
         env_keys = jax.random.split(env_key, config.num_envs)
-        env_state = jax.jit(train_env.reset)(env_keys)
-        train_env.step = jax.jit(train_env.step)
+        #env_state = jax.jit(train_env.reset)(env_keys)
+        #train_env.step = jax.jit(train_env.step)
+        env_state = train_env.reset(env_keys)
+        train_env.step = train_env.step
         ###############################################################
 
         # Dimensions definitions and sanity checks
@@ -409,8 +411,8 @@ class CARL:
        
 
         def jit_wrap(buffer):
-            buffer.insert_internal = jax.jit(buffer.insert_internal)
-            buffer.sample_internal = jax.jit(buffer.sample_internal)
+            #buffer.insert_internal = jax.jit(buffer.insert_internal)
+            #buffer.sample_internal = jax.jit(buffer.sample_internal)
             return buffer
 
         replay_buffer = jit_wrap(
@@ -422,7 +424,8 @@ class CARL:
                 episode_length=config.episode_length,
             )
         )
-        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        #buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        buffer_state = replay_buffer.init(buffer_key)
 
         # if GCARL: ####################################################
         op_replay_buffer = jit_wrap(
@@ -434,7 +437,8 @@ class CARL:
                 episode_length=config.episode_length,
             )
         )
-        op_buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        #op_buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        op_buffer_state = replay_buffer.init(buffer_key)
         ####################################################
 
         ########################################################
@@ -554,7 +558,7 @@ class CARL:
             
         # if GCARL: ################################################
         def get_experience(actor_state, op_actor_state, env_state, buffer_state, key):
-            @jax.jit
+            #@jax.jit
             def f(carry, unused_t):
                 env_state, current_key = carry
                 current_key, next_key = jax.random.split(current_key)
@@ -577,7 +581,7 @@ class CARL:
             return env_state, buffer_state
 
         def get_op_experience(actor_state, op_actor_state, env_state, buffer_state, key):
-            @jax.jit
+            #@jax.jit
             def f(carry, unused_t):
                 env_state, current_key = carry
                 current_key, next_key = jax.random.split(current_key)
@@ -601,7 +605,7 @@ class CARL:
     
         # if GCARL: ################################################
         def prefill_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
-            @jax.jit
+            #@jax.jit
             def f(carry, unused):
                 del unused
                 training_state, env_state, buffer_state, key = carry
@@ -626,7 +630,7 @@ class CARL:
             )[0]
             
         def prefill_op_replay_buffer(training_state, op_training_state, env_state, buffer_state, key):
-            @jax.jit
+            #@jax.jit
             def f(carry, unused):
                 del unused
                 op_training_state, env_state, buffer_state, key = carry
@@ -651,7 +655,7 @@ class CARL:
             )[0]
         ################################################
         
-        @jax.jit
+        #@jax.jit
         def update_networks(carry, transitions):
             training_state, key = carry
             key, critic_key, actor_key = jax.random.split(key, 3)
@@ -693,7 +697,7 @@ class CARL:
             ), metrics
 
         # if GCARL: ################################################
-        @jax.jit
+        #@jax.jit
         def update_op_networks(carry, transitions):
             training_state, key = carry
             op_key, op_critic_key, op_actor_key = jax.random.split(key, 3)
@@ -737,7 +741,7 @@ class CARL:
         ################################################
 
         # if GCARL: ################################################
-        @jax.jit
+        #@jax.jit
         def training_step(training_state, op_training_state, env_state, buffer_state, key):
             experience_key1, experience_key2, sampling_key, training_key = (
                 jax.random.split(key, 4)
@@ -796,7 +800,7 @@ class CARL:
                 buffer_state,
             ), metrics
 
-        @jax.jit
+        #@jax.jit
         def op_training_step(training_state, op_training_state, env_state, buffer_state, key):
             op_experience_key1, op_experience_key2, op_sampling_key, op_training_key = (
                 jax.random.split(key, 4)
@@ -857,7 +861,7 @@ class CARL:
         ################################################
 
         # if GCARL: ################################################
-        #@jax.jit
+        @jax.jit
         def training_epoch(
             training_state,
             op_training_state,
