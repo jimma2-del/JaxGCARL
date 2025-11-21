@@ -1144,6 +1144,7 @@ class CRL:
             try:
                 noise = True
                 metrics = evaluator.run_evaluation(training_state, metrics)
+                noise = False
             except Exception as e:
                 logging.error(f"Error in evaluator: {e}", exc_info=True)
                 raise
