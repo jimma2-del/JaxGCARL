@@ -8,7 +8,7 @@
 eval "$(conda shell.bash hook)"
 conda activate jaxgcrl
 
-method=crl
+method=carl
 env=ant
 
 for seed in 1 2 3 4 5 ; do

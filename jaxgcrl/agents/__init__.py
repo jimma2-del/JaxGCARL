@@ -1,3 +1,4 @@
+from .carl import CARL
 from .crl import CRL
 from .ppo import PPO
 from .sac import SAC
