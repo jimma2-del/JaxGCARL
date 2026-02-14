@@ -11,7 +11,7 @@ conda activate jaxgcrl
 method=carl
 env=ant
 
-for seed in 1 2 3 4 5 ; do
+for seed in 1 ; do
 
   # XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0' TF_DETERMINISTIC_OPS=1 \
     # training slows significantly but becomes fully deterministic

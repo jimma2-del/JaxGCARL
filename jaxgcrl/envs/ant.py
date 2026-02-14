@@ -8,6 +8,9 @@ from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from jax import numpy as jnp
 
+from brax.spring import pipeline as s_pipeline
+from .custom_pipeline_env import custom_pipeline_step
+
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
@@ -35,6 +38,9 @@ class Ant(PipelineEnv):
 
         n_frames = 5
 
+        # ALWAYS USE THE SPRING BACKEND; WE MODIFY THE SPRING STEP FUNCTION TO ADD CUSTOM EXTERNAL FORCES
+        backend = "spring"
+
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
@@ -56,6 +62,10 @@ class Ant(PipelineEnv):
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
+
+        # MODIFY SPRING BACKEND STEP FUNCTION   
+        s_pipeline.step = custom_pipeline_step
+        self._pipeline = s_pipeline
 
         self._ctrl_cost_weight = ctrl_cost_weight
         self._use_contact_forces = use_contact_forces
