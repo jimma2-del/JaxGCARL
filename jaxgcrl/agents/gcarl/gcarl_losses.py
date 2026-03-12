@@ -32,10 +32,10 @@ def contrastive_loss_fn(name, logits):
         
 
 
-def update_target_and_alpha(config, networks, transitions, training_state, key, target_type):
+def update_actor_and_alpha(config, networks, transitions, training_state, key, target_type):
 
     is_antag = (target_type == "antag")
-    def target_loss(target_params, critic_params, log_alpha, transitions, key):
+    def actor_loss(actor_params, critic_params, log_alpha, transitions, key):
             obs = transitions.observation
             state = obs[:, : config["state_size"]]
             future_state = transitions.extras["future_state"]
@@ -43,30 +43,30 @@ def update_target_and_alpha(config, networks, transitions, training_state, key, 
             observation = jnp.concatenate([state, goal], axis=1)
             
 
-            means, log_stds = networks["actor"].apply(target_params, observation)
+            means, log_stds = networks["actor"].apply(actor_params, observation)
             stds = jnp.exp(log_stds)
             x_ts = means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
-            target_action = nn.tanh(x_ts)
+            action = nn.tanh(x_ts)
             
             log_prob = jax.scipy.stats.norm.logpdf(x_ts, loc=means, scale=stds)
-            log_prob -= jnp.log((1 - jnp.square(target_action)) + 1e-6)
+            log_prob -= jnp.log((1 - jnp.square(action)) + 1e-6)
             log_prob = log_prob.sum(-1)
             
             sa_encoder_params, g_encoder_params = ( critic_params["sa_encoder"],critic_params["g_encoder"])
-            sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, target_action], axis=-1))
+            sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
             g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
             qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
-            target_loss = jnp.mean(jnp.exp(log_alpha) * log_prob - qf_pi)
-            return target_loss, log_prob
+            loss = jnp.mean(jnp.exp(log_alpha) * log_prob - qf_pi)
+            return loss, log_prob
         
-    (target_loss, log_prob), actor_grad = jax.value_and_grad(target_loss, has_aux=True)(
+    (actor_loss, log_prob), actor_grad = jax.value_and_grad(actor_loss, has_aux=True)(
         training_state.actor_state.params,
         training_state.critic_state.params,
         training_state.alpha_state.params["log_alpha"],
         transitions,
         key,
     )
-    new_target_state = training_state.actor_state.apply_gradients(grads=actor_grad)
+    new_state = training_state.actor_state.apply_gradients(grads=actor_grad)
     if (is_antag):
         grad = jax.tree_util.tree_map(lambda g: -g, grad)
 
@@ -81,19 +81,19 @@ def update_target_and_alpha(config, networks, transitions, training_state, key, 
     )
     new_alpha_state = training_state.alpha_state.apply_gradients(grads=alpha_grad)
     training_state = training_state.replace(
-        target_state=new_target_state, alpha_state=new_alpha_state
+        actor_state=new_state, alpha_state=new_alpha_state
     )
 
     metrics = {
         "entropy": -log_prob,
-        "target_loss": target_loss,
+        "actor_loss": actor_loss,
         "alpha_loss": alpha_loss,
         "log_alpha": training_state.alpha_state.params["log_alpha"],
     }
 
     return training_state, metrics
 
-def update_target_critic(config, networks, transitions, training_state, key, target_type):
+def update_actor_critic(config, networks, transitions, training_state, key, target_type):
     is_antag = (target_type == "antag")
     def critic_loss(critic_params, transitions, key):
         sa_encoder_params, g_encoder_params = ( critic_params["sa_encoder"],  critic_params["g_encoder"],)
