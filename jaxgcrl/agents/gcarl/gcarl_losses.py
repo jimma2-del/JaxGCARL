@@ -31,9 +31,11 @@ def contrastive_loss_fn(name, logits):
  
         
 
+
 def update_target_and_alpha(config, networks, transitions, training_state, key, target_type):
+
     is_antag = (target_type == "antag")
-    def target_loss(target_params, critic_params, log_alpha, transitions, key, target_type):
+    def target_loss(target_params, critic_params, log_alpha, transitions, key):
             obs = transitions.observation
             state = obs[:, : config["state_size"]]
             future_state = transitions.extras["future_state"]
@@ -91,12 +93,16 @@ def update_target_and_alpha(config, networks, transitions, training_state, key, 
 
     return training_state, metrics
 
-def update_target_critic(config, networks, transitions, training_state, key):
+def update_target_critic(config, networks, transitions, training_state, key, target_type):
+    is_antag = (target_type == "antag")
     def critic_loss(critic_params, transitions, key):
         sa_encoder_params, g_encoder_params = ( critic_params["sa_encoder"],  critic_params["g_encoder"],)
         state = transitions.observation[:, : config["state_size"]]
-        action = transitions.action
-        
+        if is_antag:
+
+            action = transitions.antag_action
+        else:
+            action = transitions.protag_action
         sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1) )
         g_repr = networks["g_encoder"].apply(g_encoder_params, transitions.observation[:, config["state_size"] :])
         
