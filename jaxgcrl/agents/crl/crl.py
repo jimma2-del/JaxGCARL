@@ -236,7 +236,7 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
         key = jax.random.PRNGKey(config.seed)
         # mark: Not using 2 buffers or 2 env type keys or 2 main keys, but otherwise duplicating keys
         (
-            primary_key, buffer_key, eval_env_key, env_key, protag_actor_key, antag_actor_key, protag_sa_key, antag_sa_key,
+            key, buffer_key, eval_env_key, env_key, protag_actor_key, antag_actor_key, protag_sa_key, antag_sa_key,
             protag_g_key, antag_g_key
         ) = jax.random.split(key, 10)
 
