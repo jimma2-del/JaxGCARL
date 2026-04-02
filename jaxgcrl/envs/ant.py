@@ -7,6 +7,7 @@ from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from jax import numpy as jnp
+from jaxgcrl.envs.spring_forces import apply_ft_spring
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
@@ -72,6 +73,10 @@ class Ant(PipelineEnv):
         self.goal_reach_thresh = 0.5
         self.goal_distance = goal_distance
         self.randomize_start = randomize_start
+        # index of the torso link, used for external-force experiments
+        self._torso_id = self.sys.link_names.index("torso")
+        # magnitude of a test force applied in +x on the torso (spring backend only)
+        self._test_force_mag = 0.0
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -122,6 +127,21 @@ class Ant(PipelineEnv):
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
+        # Experimental: apply a large Cartesian force on the torso in +x for spring backend.
+        if self.backend == "spring" and self._test_force_mag != 0.0:
+            # apply at torso COM in world frame
+            point = pipeline_state.x_i.pos[self._torso_id]
+            force = jnp.array([self._test_force_mag, 0.0, 0.0])
+            torque = jnp.zeros(3)
+            pipeline_state = apply_ft_spring(
+                pipeline_state=pipeline_state,
+                body_id=self._torso_id,
+                point=point,
+                force=force,
+                torque=torque,
+                dt=self.dt,
+            )
+
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
 
@@ -137,6 +157,7 @@ class Ant(PipelineEnv):
 
         old_obs = self._get_obs(pipeline_state0)
         old_dist = jnp.linalg.norm(old_obs[:2] - old_obs[-2:])
+
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[:2] - obs[-2:])
         vel_to_target = (old_dist - dist) / self.dt
