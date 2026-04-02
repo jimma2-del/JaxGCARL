@@ -21,14 +21,17 @@ from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
-from .losses import update_actor_and_alpha, update_critic # MARK 1
+from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
-# Unifying functions branch
+import os
+os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
+
+# Unifying Functions Building
 
 @dataclass
 class TrainingState:
@@ -91,7 +94,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         transition.observation, goal_index[:-1], axis=0
     )  # the last goal_index cannot be considered as there is no future.
     future_protag_action = jnp.take(transition.protag_action, goal_index[:-1], axis=0)
-    future_antag_action = jnp.take(transition.antag_action, goal_index[:-1], axis=0) # added antag, switched future_action to future_protag_...
+    future_antag_action = jnp.take(transition.antag_action, goal_index[:-1], axis=0) # mark added antag, switched future_action to future_protag_...
     goal = future_state[:, goal_indices]
     future_state = future_state[:, :state_size]
     state = transition.observation[:-1, :state_size]  # all states are considered
@@ -132,8 +135,8 @@ def save_params(path: str, params: Any):
 
 
 @dataclass
-class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
-    """Contrastive Adversarial Reinforcement Learning (CARL) agent."""
+class CRL:
+    """Contrastive Adversarial Reinforcement Learning (CARL) agent.""" # MARK
 
     policy_lr: float = 3e-4
     critic_lr: float = 3e-4
@@ -142,9 +145,6 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
 
     # gamma
     discounting: float = 0.99
-
-    # damping, mark
-    antag_damping: float = 0.1
 
     # forward CRL logsumexp penalty
     logsumexp_penalty_coeff: float = 0.1
@@ -207,9 +207,9 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
             action_repeat=config.action_repeat,
         )
 
-        env_steps_per_actor_step = config.num_envs * self.unroll_length # mark leaving the same, assuming it is equivalent for both protag & antag
+        env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
-        num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length) # mark leaving the same for both
+        num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length)
         num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (
             config.num_evals * env_steps_per_actor_step
         )
@@ -241,13 +241,13 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
         ) = jax.random.split(key, 10)
 
         env_keys = jax.random.split(env_key, config.num_envs)
-        env_state = train_env.reset(env_keys) # mark
-        train_env.step = train_env.step
+        env_state = jax.jit(train_env.reset)(env_keys)
+        train_env.step = jax.jit(train_env.step)
 
         # Dimensions definitions and sanity checks
         protag_action_size = train_env.action_size # MARK
         antag_action_size = train_env.action_size # MARK
-        state_size = train_env.state_dim # mark, not actually changing this
+        state_size = train_env.state_dim
         goal_size = len(train_env.goal_indices)
         obs_size = state_size + goal_size
         assert obs_size == train_env.observation_size, (
@@ -256,7 +256,6 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
 
         ### Network setup
         
-
         # Actor - mark, making general functions for actor, actor state
         def gen_actor(action_size, actor_key):
             actor = Actor(
@@ -336,9 +335,9 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
             )
 
             return training_state
-
         protag_training_state = gen_training_state(protag_actor_state, protag_critic_state, protag_alpha_state)
         antag_training_state = gen_training_state(antag_actor_state, antag_critic_state, antag_alpha_state)
+
         
         # Replay Buffer
         dummy_obs = jnp.zeros((obs_size,))
@@ -359,24 +358,25 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
             },
         )
 
-        # mark removed jit_wrap(buffer) func since this whole thing is wrapped in jax.jit
         
-        # mark removed jit_wrap around trajectoryuni...
-        replay_buffer = TrajectoryUniformSamplingQueue(
+        def jit_wrap(buffer):
+            buffer.insert_internal = jax.jit(buffer.insert_internal)
+            buffer.sample_internal = jax.jit(buffer.sample_internal)
+            return buffer
+
+        replay_buffer = jit_wrap(
+            TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
                 sample_batch_size=self.batch_size,
                 num_envs=config.num_envs,
                 episode_length=config.episode_length,
             )
-        buffer_state = replay_buffer.init(buffer_key) # mark removed jax.jit
+        )
+        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
 
-        # mark, theoretically an op/antag_buffer could exist here
-
-
-        #mark, NOT making generalized bc its only called for the protagonist by ActorEvaluator. Changed actor to specifically protag_actor within only this function
-        def deterministic_actor_step(training_state, env, env_state, extra_fields): 
-            means, _ = protag_actor.apply(training_state.actor_state.params, env_state.obs) # mark
+        def deterministic_actor_step(training_state, env, env_state, extra_fields):
+            means, _ = protag_actor.apply(training_state.actor_state.params, env_state.obs)
             actions = nn.tanh(means)
 
             nstate = env.step(env_state, actions)
@@ -385,165 +385,146 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
             return nstate, Transition(
                 observation=env_state.obs,
                 protag_action=actions,
-                antag_action=None, # mark
+                antag_action=dummy_antag_action, # mark
                 reward=nstate.reward,
                 discount=1 - nstate.done,
                 extras={"state_extras": state_extras},
             )
 
-        # mark added actor & antag actor
-        def actor_step(protag_actor_state, antag_actor_state, env, env_state, key, antag_key, extra_fields):
-            
-            means, log_stds = protag_actor.apply(protag_actor_state.params, env_state.obs)
+        def actor_step(pro_actor_state, ant_actor_state, env, env_state, key, extra_fields):
+            pro_key, ant_key = jax.random.split(key) # mark
+            means, log_stds = protag_actor.apply(pro_actor_state.params, env_state.obs)
             stds = jnp.exp(log_stds)
-            protag_actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
+            protag_actions = nn.tanh(means + stds * jax.random.normal(pro_key, shape=means.shape, dtype=means.dtype))
 
-            antag_means, antag_log_stds = antag_actor.apply(antag_actor_state.params, env_state.obs) # mark added log_stds for both actors
+            antag_means, antag_log_stds = antag_actor.apply(ant_actor_state.params, env_state.obs) # mark added log_stds for both actors
             antag_stds = jnp.exp(antag_log_stds)
-            antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(antag_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
+            antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
-            net_action = protag_actions + antag_actions # TODO edit net_action formation for forces, perhaps
+            net_action = protag_actions # TODO edit net_action formation for forces, perhaps
             
             nstate = env.step(env_state, net_action)
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
-            return nstate, Transition( # mark transition now has antag_action
+            return nstate, Transition(
                 observation=env_state.obs,
-                protag_action=protag_actions,
+                protag_action=protag_actions, # mark
                 antag_action=antag_actions,
                 reward=nstate.reward,
                 discount=1 - nstate.done,
                 extras={"state_extras": state_extras},
             )
 
-        # mark protag, antag added. Modified for actor step
         @jax.jit
-        def get_experience(protag_actor_state, antag_actor_state, env_state, buffer_state, key):
-            
+        def get_experience(pro_actor_state, ant_actor_state, env_state, buffer_state, key): # mark
             @jax.jit
             def f(carry, unused_t):
                 env_state, current_key = carry
-                protag_current_key, antag_current_key, next_key = jax.random.split(current_key, 3) # splits into 3 keys now mark
+                current_key, next_key = jax.random.split(current_key)
                 env_state, transition = actor_step(
-                    protag_actor_state,
-                    antag_actor_state,
+                    pro_actor_state, # mark
+                    ant_actor_state,
                     train_env,
                     env_state,
-                    protag_current_key,
-                    antag_current_key,
+                    current_key,
                     extra_fields=("truncation", "traj_id"),
                 )
                 return (env_state, next_key), transition
 
             (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
-
+           
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
 
-        # mark adjusted parameters
-        def prefill_replay_buffer(protag_training_state_ext, antag_training_state_ext, env_state_ext, buffer_state_ext, key_ext):
-            
-            
+        def prefill_replay_buffer(pro_training_state, ant_training_state, env_state, buffer_state, key): # mark
             @jax.jit
             def f(carry, unused):
                 del unused
-                protag_training_state, antag_training_state, env_state, buffer_state, key = carry
+                pro_training_state, ant_training_state, env_state, buffer_state, key = carry
                 key, new_key = jax.random.split(key)
-                env_state, buffer_state = get_experience( # mark adjusted arguments
-                    protag_training_state.actor_state,
-                    antag_training_state.actor_state,
+                env_state, buffer_state = get_experience(
+                    pro_training_state.actor_state, # mark
+                    ant_training_state.actor_state,
                     env_state,
                     buffer_state,
                     key,
                 )
-                protag_training_state = protag_training_state.replace( # mark
-                    env_steps=protag_training_state.env_steps + env_steps_per_actor_step,
+                pro_training_state = pro_training_state.replace(
+                    env_steps=pro_training_state.env_steps + env_steps_per_actor_step,
                 )
-                antag_training_state = antag_training_state.replace( # mark doing both protag & antag at once, should be fine since we are just prefilling the replay buffer
-                    env_steps=antag_training_state.env_steps + env_steps_per_actor_step,
+                ant_training_state = ant_training_state.replace( # mark training both
+                    env_steps=ant_training_state.env_steps + env_steps_per_actor_step,
                 )
-                return (protag_training_state, antag_training_state, env_state, buffer_state, new_key), () # mark returns both training states
-        
+                return (pro_training_state, ant_training_state, env_state, buffer_state, new_key), ()
+
             return jax.lax.scan(
                 f,
-                (protag_training_state_ext, antag_training_state_ext, env_state_ext, buffer_state_ext, key_ext), # mark
+                (pro_training_state, ant_training_state, env_state, buffer_state, key), # mark
                 (),
                 length=num_prefill_actor_steps,
             )[0]
 
-        
-        # mark added negative reward flag since it is needed to calculate gradients in updte_act_and_alpha
-        @functools.partial(jax.jit, static_argnames=("is_antag_flag")) 
-        def update_networks(action_size, training_state_ext, training_key, transitions_ext, is_antag_flag):
+        @functools.partial(jax.jit, static_argnames=("network_info")) 
+        def update_networks(carry, transitions, network_info):
+            is_antag_flag, action_size = network_info # mark, network info should be functools.partial'd
 
+            target_entropy = antag_target_entropy if is_antag_flag else protag_target_entropy #mark
+            actor = antag_actor if is_antag_flag else protag_actor # mark, cannot pass as parameter
+            sa_encoder = antag_sa_encoder if is_antag_flag else protag_sa_encoder # mark, cannot pass as parameter
+            g_encoder = antag_g_encoder if is_antag_flag else protag_g_encoder # mark, cannot pass as parameter
+            
+            training_state, key = carry
+            key, critic_key, actor_key = jax.random.split(key, 3)
 
-            def f(carry, transitions): # Mark, creating f in this function and moving jax.lax.scan out of training_step and into update_networks
-                training_state, key = carry
-                key, critic_key, actor_key = jax.random.split(key, 3)
+            context = dict(
+                **vars(self),
+                **vars(config),
+                state_size=state_size,
+                action_size=action_size, # mark
+                goal_size=goal_size,
+                obs_size=obs_size,
+                goal_indices=train_env.goal_indices,
+                target_entropy=target_entropy,
+            )
 
-                
-                target_entropy = antag_target_entropy if is_antag_flag else protag_target_entropy #mark
-                
-                context = dict(
-                    **vars(self),
-                    **vars(config),
-                    state_size=state_size,
-                    action_size=action_size,
-                    goal_size=goal_size,
-                    obs_size=obs_size,
-                    goal_indices=train_env.goal_indices,
-                    target_entropy=target_entropy,
-                )
-        
-                actor = antag_actor if is_antag_flag else protag_actor # mark, cannot pass as parameter
-                sa_encoder = antag_sa_encoder if is_antag_flag else protag_sa_encoder # mark, cannot pass as parameter
-                g_encoder = antag_g_encoder if is_antag_flag else protag_g_encoder # mark, cannot pass as parameter
-                
-                networks = dict(
-                    actor=actor,
-                    sa_encoder=sa_encoder,
-                    g_encoder=g_encoder,
-                )
-    
-                training_state, actor_metrics = update_actor_and_alpha(
-                    context, networks, transitions, training_state, actor_key, is_antag_flag, # mark negative reward flag boolean
-                )
-                training_state, critic_metrics = update_critic(
-                    context, networks, transitions, training_state, critic_key, is_antag_flag,
-                )
-                training_state = training_state.replace(gradient_steps=training_state.gradient_steps + 1)
-    
-                metrics = {}
-                metrics.update(actor_metrics)
-                metrics.update(critic_metrics)
-    
-                return (
-                    training_state,
-                    key,
-                ), metrics
+            networks = dict(
+                actor=actor, # mark
+                sa_encoder=sa_encoder,
+                g_encoder=g_encoder,
+            )
 
-                
-            return jax.lax.scan(f, (training_state_ext, training_key), transitions_ext)
+            training_state, actor_metrics = update_actor_and_alpha(
+                context, networks, transitions, training_state, actor_key, is_antag_flag #mark
+            )
+            training_state, critic_metrics = update_critic(
+                context, networks, transitions, training_state, critic_key, is_antag_flag #mark
+            )
+            training_state = training_state.replace(gradient_steps=training_state.gradient_steps + 1)
 
-        @functools.partial(jax.jit, static_argnames=("is_antag_flag")) 
-        def training_step(protag_actor_state, antag_actor_state, action_size, is_antag_flag, training_state, env_state, buffer_state, key): 
-                                        # mark: Function requires both protag & antag for get exp
-                                        #           These are only used for getting experience 
-                                        # The following actor (a duplicate of either protag or antag_actor), along with its associated
-                        # sa,g_encoders and target_entropy and action size and negativeRewardFlag is what is actually updated/trained
+            metrics = {}
+            metrics.update(actor_metrics)
+            metrics.update(critic_metrics)
+
+            return (
+                training_state,
+                key,
+            ), metrics
+
+        @functools.partial(jax.jit, static_argnames=("network_info")) 
+        def training_step(primary_training_state, pro_training_state, ant_training_state, env_state, buffer_state, key, network_info):
             experience_key1, experience_key2, sampling_key, training_key = jax.random.split(key, 4)
 
             # update buffer
             env_state, buffer_state = get_experience(
-                protag_actor_state, 
-                antag_actor_state, # added actor data needed for getting experience
+                pro_training_state.actor_state,
+                ant_training_state.actor_state,
                 env_state,
                 buffer_state,
                 experience_key1,
             )
 
-            training_state = training_state.replace(
-                env_steps=training_state.env_steps + env_steps_per_actor_step,
+            primary_training_state = primary_training_state.replace( # Mark
+                env_steps=primary_training_state.env_steps + env_steps_per_actor_step,
             )
 
             # sample actor-step worth of transitions
@@ -571,31 +552,27 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
             # take actor-step worth of training-step
             (
                 (
-                    training_state,
+                    primary_training_state, # mark
                     _,
                 ),
                 metrics,
-            ) = update_networks(action_size, training_state, training_key, transitions, is_antag_flag) # mark. moved jax.lax.scan into update_networks
-            
+            ) = jax.lax.scan(functools.partial(update_networks,network_info=(network_info)), (primary_training_state, training_key), transitions) # mark
 
             return (
-                training_state,
+                primary_training_state, # mark
                 env_state,
                 buffer_state,
             ), metrics
 
         @jax.jit
         def training_epoch(
-            protag_training_state, # mark passing in the antag training state
-            antag_training_state,
+            pro_training_state,
+            ant_training_state,
             env_state,
             buffer_state,
             key,
         ):
-            
-            
-            print("Training epoch: entered") # MARKLOG
-            #@jax.jit mark
+            @jax.jit
             def f(carry, unused_t):
                 ts, es, bs, k = carry
                 k, train_key = jax.random.split(k, 2)
@@ -606,10 +583,11 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
                         bs,
                     ),
                     metrics,
-                ) = training_step(protag_actor_state, antag_actor_state, protag_action_size, False, ts, es, bs, train_key) # mark added arguments
+                ) = training_step(ts, pro_training_state, ant_training_state, es, bs, train_key, (False, protag_action_size))
                 return (ts, es, bs, k), metrics
 
-            def g(carry, unused_t): # antag version of f
+            @jax.jit
+            def g(carry, unused_t):
                 ts, es, bs, k = carry
                 k, train_key = jax.random.split(k, 2)
                 (
@@ -618,31 +596,31 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
                         es,
                         bs,
                     ),
-                    antag_metrics,
-                ) = training_step(protag_actor_state, antag_actor_state, antag_action_size, True, ts, es, bs, train_key) # mark added arguments (true for negative rewards on antagonist gradient updates)
-                return (ts, es, bs, k), antag_metrics
+                    metrics,
+                ) = training_step(ts, pro_training_state, ant_training_state, es, bs, train_key, (True, antag_action_size))
+                return (ts, es, bs, k), metrics
 
-            (protag_training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
+            (pro_training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
                 f,
-                (protag_training_state, env_state, buffer_state, key),
+                (pro_training_state, env_state, buffer_state, key),
                 (),
                 length=num_training_steps_per_epoch,
             )
 
-            (antag_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan( # mark added antag scan training
-                g,
-                (antag_training_state, env_state, buffer_state, key),
-                (),
-                length=num_training_steps_per_epoch,
-            )
+            #(ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
+            #    g,
+            #    (ant_training_state, env_state, buffer_state, key),
+            #    (),
+            #    length=num_training_steps_per_epoch,
+            #)
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state) # mark antag metrics, although they use the same buffer
-            return protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics
-
+            # todo antag_metrics
+            return pro_training_state, ant_training_state, env_state, buffer_state, metrics
+        
         key, prefill_key = jax.random.split(key, 2)
 
-        protag_training_state, antag_training_state, env_state, buffer_state, _ = prefill_replay_buffer( # mark adjusted return values and arguments
+        protag_training_state, antag_training_state, env_state, buffer_state, _ = prefill_replay_buffer(
             protag_training_state, antag_training_state, env_state, buffer_state, prefill_key
         )
 
@@ -658,43 +636,34 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
         training_walltime = 0
         logging.info("starting training....")
         for ne in range(config.num_evals):
-            print(f"Entered training loop at eval {ne}") #MARKLOG
-            logging.info(f"Entered training loop at eval {ne}") #MARKLOG
-            
             t = time.time()
-
+            
             key, epoch_key = jax.random.split(key)
 
-            protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # mark
+            protag_training_state, antag_training_state, env_state, buffer_state, metrics = training_epoch(
                 protag_training_state, antag_training_state, env_state, buffer_state, epoch_key
-            )
-
-            print("After training epoch") # MARKLOG
-
+            ) # todo antag metrics. Both on this func call, and the below treemaps on metrics
+            
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
-
-            antag_metrics = jax.tree_util.tree_map(jnp.mean, antag_metrics) # mark antag metrics
-            antag_metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), antag_metrics)
-
+    
             epoch_training_time = time.time() - t
             training_walltime += epoch_training_time
-
+    
             sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
             metrics = {
                 "training/sps": sps,
                 "training/walltime": training_walltime,
-                "training/envsteps": protag_training_state.env_steps.item(), # mark
+                "training/envsteps": protag_training_state.env_steps.item(),
                 **{f"training/{name}": value for name, value in metrics.items()},
             }
             current_step = int(protag_training_state.env_steps.item())
 
-            metrics = evaluator.run_evaluation(protag_training_state, metrics) # mark
-            print("After evaluator") # MARKLOG
+            metrics = evaluator.run_evaluation(protag_training_state, metrics)
             logging.info("step: %d", current_step)
 
             do_render = ne % config.visualization_interval == 0
-            make_policy = lambda param: lambda obs, rng: protag_actor.apply(param, obs) # mark
+            make_policy = lambda param: lambda obs, rng: protag_actor.apply(param, obs)
 
             progress_fn(
                 current_step,
@@ -705,17 +674,16 @@ class CRL: #mark CARL, but keeping CRL for now for convenience #TODO
                 do_render=do_render,
             )
 
-            print("After progress_fn") #MARKLOG
-
             if config.checkpoint_logdir:
                 # Save current policy and critic params.
                 params = (
-                    protag_training_state.alpha_state.params, # mark
+                    protag_training_state.alpha_state.params,
                     protag_training_state.actor_state.params,
                     protag_training_state.critic_state.params,
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(protag_training_state.env_steps)}.pkl"
                 save_params(path, params)
+
 
         total_steps = current_step
         assert total_steps >= config.total_env_steps
