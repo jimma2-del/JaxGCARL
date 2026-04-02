@@ -284,8 +284,10 @@ class CARL:
         
         # if GCARL: ###############################################################
         # Opposing Actor
+        op_action_size = 3
+        
         op_actor = Actor(
-            action_size=action_size,
+            action_size=op_action_size,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
             skip_connections=self.skip_connections,
@@ -428,10 +430,27 @@ class CARL:
         buffer_state = replay_buffer.init(buffer_key)
 
         # if GCARL: ####################################################
+        op_dummy_obs = jnp.zeros((obs_size,))
+        op_dummy_action = jnp.zeros((op_action_size,))
+
+        op_dummy_transition = Transition(
+            observation=dummy_obs,
+            action=dummy_action,
+            reward=0.0,
+            discount=0.0,
+            extras={
+                "state_extras": {
+                    "truncation": 0.0,
+                    "traj_id": 0.0,
+                },
+                "other_actions": jnp.zeros_like(dummy_action),
+            },
+        )
+        
         op_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
-                dummy_data_sample=dummy_transition,
+                dummy_data_sample=op_dummy_transition,
                 sample_batch_size=self.batch_size,
                 num_envs=config.num_envs,
                 episode_length=config.episode_length,
@@ -468,7 +487,7 @@ class CARL:
             means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
             actions = nn.tanh(means)
     
-            nstate = env.step(env_state, actions)
+            nstate = env.step(env_state, jnp.concatenate((actions, jnp.zeros(op_action_size)), axis=1))
             state_extras = {x: nstate.info[x] for x in extra_fields}
     
             return nstate, Transition(
@@ -490,9 +509,8 @@ class CARL:
                 + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
             )
             op_actions = self.damping*nn.tanh(op_means)
-            net_action = actions + op_actions
             
-            nstate = env.step(env_state, net_action)
+            nstate = env.step(env_state, jnp.concatenate((actions, op_actions), axis=1))
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
             return nstate, Transition(
@@ -513,9 +531,8 @@ class CARL:
             op_means, _ = op_actor.apply(training_state.actor_state)
             actions = nn.tanh(means)
             op_actions = self.damping*nn.tanh(op_means)
-            net_action = actions + op_actions
 
-            nstate = env.step(env_state, net_action)
+            nstate = env.step(env_state, jnp.concatenate((actions, op_actions), axis=1))
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
             return nstate, Transition(
@@ -537,12 +554,11 @@ class CARL:
             op_stds = jnp.exp(op_log_stds)
             op_actions = self.damping* nn.tanh(
                 op_means
-                + op_stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
+                + op_stds * jax.random.normal(key, shape=op_means.shape, dtype=op_means.dtype)
             )
             actions = nn.tanh(means)
-            net_action = actions + op_actions
             
-            nstate = env.step(env_state, net_action)
+            nstate = env.step(env_state, jnp.concatenate((actions, op_actions), axis=1))
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
             return nstate, Transition(

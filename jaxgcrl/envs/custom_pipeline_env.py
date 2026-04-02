@@ -15,11 +15,15 @@ from brax.spring import pipeline as s_pipeline
 import jax
 import jax.numpy as jnp
 
-original_pipeline_step = s_pipeline.step
+#original_pipeline_step = s_pipeline.step
 
 def custom_pipeline_step(sys: System, state: State, act: jax.Array, debug: bool = False):
   print("CUSTOM STEP")
   #return original_pipeline_step(*args)
+
+  # act is protagonist actions (one for each actuator) + antagonist actions; split
+  act_op = act[len(sys.actuator.ctrl_range):]
+  act = act[:len(sys.actuator.ctrl_range)]
 
   tau = actuator.to_tau(sys, act, state.q, state.qd)
   xdd_i = Motion.create(vel=sys.gravity)
@@ -29,7 +33,9 @@ def custom_pipeline_step(sys: System, state: State, act: jax.Array, debug: bool 
     xf_i += fluid.force(sys, state.x, state.xd, state.mass, inertia)
 
   # ADD CUSTOM FORCES (to xf_i)
-  xf_i += Force.create(vel=jnp.zeros_like(xf_i.vel).at[0,2].add(100))
+  #xf_i += Force.create(vel=jnp.zeros_like(xf_i.vel).at[0,2].add(100)) # apply force on torso (id 0) upwards (+z)
+  xf_i += Force.create(vel=jnp.zeros_like(xf_i.vel).at[0].set(100 * act_op[:3])) # op applies force on the torso (id 0)
+    # currently, max diagonal magnitude can be higher than straight
 
   xdd_i += Motion(
       ang=jax.vmap(lambda x, y: x @ y)(state.i_inv, xf_i.ang),
