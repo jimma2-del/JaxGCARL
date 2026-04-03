@@ -583,7 +583,7 @@ class CRL:
                         bs,
                     ),
                     metrics,
-                ) = training_step(ts, pro_training_state, ant_training_state, es, bs, train_key, (False, protag_action_size))
+                ) = training_step(ts, ts, ant_training_state, es, bs, train_key, (False, protag_action_size))
                 return (ts, es, bs, k), metrics
 
             @jax.jit
@@ -597,7 +597,7 @@ class CRL:
                         bs,
                     ),
                     metrics,
-                ) = training_step(ts, pro_training_state, ant_training_state, es, bs, train_key, (True, antag_action_size))
+                ) = training_step(ts, pro_training_state, ts, es, bs, train_key, (True, antag_action_size))
                 return (ts, es, bs, k), metrics
 
             (pro_training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
