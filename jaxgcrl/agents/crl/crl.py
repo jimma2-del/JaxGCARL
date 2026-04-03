@@ -615,8 +615,8 @@ class CRL:
             #)
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            # todo antag_metrics
-            return pro_training_state, ant_training_state, env_state, buffer_state, metrics
+            #antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, {}# antag_metrics # Mark: Return antag_metrics if the antag loop is running
         
         key, prefill_key = jax.random.split(key, 2)
 
@@ -640,9 +640,9 @@ class CRL:
             
             key, epoch_key = jax.random.split(key)
 
-            protag_training_state, antag_training_state, env_state, buffer_state, metrics = training_epoch(
+            protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
                 protag_training_state, antag_training_state, env_state, buffer_state, epoch_key
-            ) # todo antag metrics. Both on this func call, and the below treemaps on metrics
+            )
             
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
