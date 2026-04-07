@@ -1,5 +1,5 @@
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 import jax
 import mujoco
@@ -26,6 +26,7 @@ class Ant(PipelineEnv):
         reset_noise_scale=0.1,
         exclude_current_positions_from_observation=False,
         backend="generalized",
+        friction: Optional[float] = None,
         dense_reward: bool = False,
         randomize_start=False,
         goal_distance=10,
@@ -53,6 +54,10 @@ class Ant(PipelineEnv):
         if backend == "positional":
             # TODO: does the same actuator strength work as in spring
             sys = sys.replace(actuator=sys.actuator.replace(gear=200 * jnp.ones_like(sys.actuator.gear)))
+
+        if friction is not None:
+            geom_friction = sys.geom_friction.at[:, 0].set(friction)
+            sys = sys.tree_replace({"geom_friction": geom_friction})
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 

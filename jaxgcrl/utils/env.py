@@ -82,9 +82,9 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
     if env_name == "reacher":
         env = Reacher(backend=backend or "generalized")
     elif env_name == "ant":
-        env = Ant(backend=backend or "spring")
+        env = Ant(backend=backend or "spring", **kwargs)
     elif env_name == "ant_random_start":
-        env = Ant(backend=backend or "spring", randomize_start=True)
+        env = Ant(backend=backend or "spring", randomize_start=True, **kwargs)
     elif env_name == "ant_ball":
         env = AntBall(backend=backend or "spring")
     elif env_name == "ant_push":

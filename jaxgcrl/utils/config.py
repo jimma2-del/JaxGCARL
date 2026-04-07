@@ -61,6 +61,7 @@ class RunConfig:
 
     seed: int = 0
     backend: Optional[Literal["mjx", "spring", "positional", "generalized"]] = None
+    friction: Optional[float] = None
 
     # wandb logging
     exp_name: str = "run"

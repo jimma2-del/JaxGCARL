@@ -55,9 +55,13 @@ def main(config: Config):
         mode="online" if config.run.log_wandb else "disabled",
     )
 
-    env = create_env(env_name=config.run.env, backend=config.run.backend)
+    env_kwargs = {}
+    if config.run.friction is not None:
+        env_kwargs["friction"] = config.run.friction
+
+    env = create_env(env_name=config.run.env, backend=config.run.backend, **env_kwargs)
     if config.run.eval_env:
-        eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend)
+        eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend, **env_kwargs)
     else:
         eval_env = env
 
