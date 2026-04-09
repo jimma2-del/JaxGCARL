@@ -11,10 +11,7 @@ conda activate jaxgcrl
 method=carl
 env=ant
 
-for seed in 1 2 3 4 5 ; do
-
-  # XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0' TF_DETERMINISTIC_OPS=1 \
-    # training slows significantly but becomes fully deterministic
+for seed in 1; do
 
   XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
     --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 \
