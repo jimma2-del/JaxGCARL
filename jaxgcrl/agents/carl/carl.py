@@ -402,8 +402,8 @@ class CARL:
             antag_stds = jnp.exp(antag_log_stds)
             antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
-            #raise Exception("Need to implement net_action depending on what you want to test. Example on line below:")
-            net_action = protag_actions + 0.1*antag_actions # TODO edit net_action formation for forces, perhaps
+            raise Exception("Need to implement net_action depending on what you want to test. Example on line below:")
+            #net_action = protag_actions + 0.1*antag_actions # TODO edit net_action formation for forces, perhaps
             
             nstate = env.step(env_state, net_action)
             state_extras = {x: nstate.info[x] for x in extra_fields}
