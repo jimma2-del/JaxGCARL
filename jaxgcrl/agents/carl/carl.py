@@ -28,9 +28,8 @@ Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
-# Uncomment to make deterministic, but slows training heavily
-# import os
-# os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
+import os
+os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
 
 # Unifying Functions Building
 
@@ -136,7 +135,7 @@ def save_params(path: str, params: Any):
 
 
 @dataclass
-class CARL:
+class CRL:
     """Contrastive Adversarial Reinforcement Learning (CARL) agent.""" # MARK
 
     policy_lr: float = 3e-4
@@ -402,8 +401,8 @@ class CARL:
             antag_stds = jnp.exp(antag_log_stds)
             antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
-            raise Exception("Need to implement net_action depending on what you want to test. Example on line below:")
-            #net_action = protag_actions + 0.1*antag_actions # TODO edit net_action formation for forces, perhaps
+            raise Exception("Implement the net_action accordingly")
+            #net_action = protag_actions # TODO edit net_action formation for forces, perhaps
             
             nstate = env.step(env_state, net_action)
             state_extras = {x: nstate.info[x] for x in extra_fields}
@@ -609,16 +608,16 @@ class CARL:
                 length=num_training_steps_per_epoch,
             )
 
-            (ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
-               g,
-               (ant_training_state, env_state, buffer_state, key),
-               (),
-               length=num_training_steps_per_epoch,
-            )
+            #(ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
+            #    g,
+            #    (ant_training_state, env_state, buffer_state, key),
+            #    (),
+            #    length=num_training_steps_per_epoch,
+            #)
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, antag_metrics # Mark: Return antag_metrics if the antag loop is running
+            #antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, {}# antag_metrics # Mark: Return antag_metrics if the antag loop is running
         
         key, prefill_key = jax.random.split(key, 2)
 
