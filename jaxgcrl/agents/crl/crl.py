@@ -202,11 +202,13 @@ class CRL:
         env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
         num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length)
-        num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (config.num_evals * env_steps_per_actor_step)
+        num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (
+            config.num_evals * env_steps_per_actor_step
+        )
 
-        assert (
-            num_training_steps_per_epoch > 0
-        ), "total_env_steps too small for given num_envs and episode_length"
+        assert num_training_steps_per_epoch > 0, (
+            "total_env_steps too small for given num_envs and episode_length"
+        )
 
         logging.info(
             "num_prefill_env_steps: %d",
@@ -315,8 +317,8 @@ class CRL:
         )
 
         def jit_wrap(buffer):
-            #buffer.insert_internal = jax.jit(buffer.insert_internal)
-            #buffer.sample_internal = jax.jit(buffer.sample_internal)
+            buffer.insert_internal = jax.jit(buffer.insert_internal)
+            buffer.sample_internal = jax.jit(buffer.sample_internal)
             return buffer
 
         replay_buffer = jit_wrap(
@@ -328,8 +330,7 @@ class CRL:
                 episode_length=config.episode_length,
             )
         )
-        #buffer_state = jax.jit(replay_buffer.init)(buffer_key)
-        buffer_state = replay_buffer.init(buffer_key)
+        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
 
         def deterministic_actor_step(training_state, env, env_state, extra_fields):
             means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
@@ -406,7 +407,7 @@ class CRL:
                 length=num_prefill_actor_steps,
             )[0]
 
-        #@jax.jit
+        @jax.jit
         def update_networks(carry, transitions):
             training_state, key = carry
             key, critic_key, actor_key = jax.random.split(key, 3)
