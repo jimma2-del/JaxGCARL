@@ -135,7 +135,7 @@ def save_params(path: str, params: Any):
 
 
 @dataclass
-class CRL:
+class CARL:
     """Contrastive Adversarial Reinforcement Learning (CARL) agent.""" # MARK
 
     policy_lr: float = 3e-4
