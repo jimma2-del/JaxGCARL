@@ -616,7 +616,7 @@ class CARL:
             )
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            #antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+            antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             return pro_training_state, ant_training_state, env_state, buffer_state, metrics, antag_metrics # Mark: Return antag_metrics if the antag loop is running
         
         key, prefill_key = jax.random.split(key, 2)
