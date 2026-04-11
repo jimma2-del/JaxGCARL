@@ -55,17 +55,6 @@ class Ant(PipelineEnv):
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
-        # sys = sys.replace(
-        #     link = sys.link.replace(
-        #         inertia = sys.link.inertia.replace(
-        #             mass = sys.link.inertia.mass * 1000,
-        #             i = sys.link.inertia.i * 1000
-        #         )
-        #     )
-        # )
-
-        
-
         super().__init__(sys=sys, backend=backend, **kwargs)
 
         self._ctrl_cost_weight = ctrl_cost_weight
@@ -109,11 +98,6 @@ class Ant(PipelineEnv):
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
 
-        #mark
-        pipeline_state = pipeline_state.replace(
-            mass = pipeline_state.mass * 10
-        )
-
         reward, done, zero = jnp.zeros(3)
         metrics = {
             "reward_forward": zero,
@@ -137,9 +121,6 @@ class Ant(PipelineEnv):
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
-        
-        #jax.debug.print("mass={mass}", mass=pipeline_state.mass)
-        #jax.debug.print("i_inv={i}", i=pipeline_state.i_inv)
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
