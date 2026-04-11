@@ -28,8 +28,8 @@ Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
-import os
-os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
+#import os
+#os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
 
 # Unifying Functions Building
 
@@ -608,16 +608,16 @@ class CRL:
                 length=num_training_steps_per_epoch,
             )
 
-            #(ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
-            #    g,
-            #    (ant_training_state, env_state, buffer_state, key),
-            #    (),
-            #    length=num_training_steps_per_epoch,
-            #)
+            (ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
+                g,
+                (ant_training_state, env_state, buffer_state, key),
+                (),
+                length=num_training_steps_per_epoch,
+            )
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             #antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, {}# antag_metrics # Mark: Return antag_metrics if the antag loop is running
+            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, antag_metrics # Mark: Return antag_metrics if the antag loop is running
         
         key, prefill_key = jax.random.split(key, 2)
 
