@@ -242,6 +242,10 @@ class CRL:
         )
 
         # Network setup
+        alphaparams, actorparams, criticparams = None, None, None
+        if config.eval_only_path:
+            alphaparams, actorparams, criticparams = load_params(config.eval_only_path)
+            
         # Actor
         actor = Actor(
             action_size=action_size,
@@ -551,6 +555,20 @@ class CRL:
             t = time.time()
 
             key, epoch_key = jax.random.split(key)
+
+            if config.eval_only_path: # Mark eval for loading parameters
+                metrics = evaluator.run_evaluation(training_state, {})
+                make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)
+                progress_fn(
+                    0,
+                    metrics,
+                    make_policy,
+                    training_state.actor_state.params,
+                    unwrapped_env,
+                    do_render=False,
+                )
+                logging.info("Immediate-eval complete")
+                return
 
             training_state, env_state, buffer_state, metrics = training_epoch(
                 training_state, env_state, buffer_state, epoch_key
