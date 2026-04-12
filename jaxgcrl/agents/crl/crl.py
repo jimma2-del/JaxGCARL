@@ -586,7 +586,7 @@ class CRL:
                 do_render=do_render,
             )
 
-            if config.checkpoint_logdir:
+            if config.checkpoint_logdir and ne % config.save_interval == 0:
                 # Save current policy and critic params.
                 params = (
                     training_state.alpha_state.params,
@@ -595,6 +595,17 @@ class CRL:
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
                 save_params(path, params)
+
+        # mark last step
+        if config.checkpoint_logdir:
+            # Save current policy and critic params.
+            params = (
+                training_state.alpha_state.params,
+                training_state.actor_state.params,
+                training_state.critic_state.params,
+            )
+            path = f"{config.checkpoint_logdir}/final_{int(training_state.env_steps)}.pkl"
+            save_params(path, params)
 
         total_steps = current_step
         assert total_steps >= config.total_env_steps
