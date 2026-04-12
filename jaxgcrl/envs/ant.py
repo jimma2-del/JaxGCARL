@@ -11,6 +11,9 @@ from jax import numpy as jnp
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
+## <mark import custom_spring_pipeline>
+from . import custom_spring_pipeline
+## </mark>
 
 class Ant(PipelineEnv):
     def __init__(
@@ -35,6 +38,10 @@ class Ant(PipelineEnv):
 
         n_frames = 5
 
+        ## <mark ALWAYS USE THE SPRING BACKEND; WE MODIFY THE SPRING STEP FUNCTION TO ADD CUSTOM EXTERNAL FORCES>
+        backend = "spring"
+        ## </mark>
+
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
@@ -56,6 +63,11 @@ class Ant(PipelineEnv):
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
+
+        ## <mark override backend with custom spring backend>
+        self._backend = "custom-spring"
+        self._pipeline = custom_spring_pipeline
+        ## </mark>
 
         self._ctrl_cost_weight = ctrl_cost_weight
         self._use_contact_forces = use_contact_forces
