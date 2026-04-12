@@ -256,7 +256,7 @@ class CRL:
         )
         actor_state = TrainState.create(
             apply_fn=actor.apply,
-            params=actor.init(actor_key, np.ones([1, obs_size])),
+            params=actorparams or actor.init(actor_key, np.ones([1, obs_size])),
             tx=optax.adam(learning_rate=self.policy_lr),
         )
 
@@ -281,7 +281,7 @@ class CRL:
         g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
         critic_state = TrainState.create(
             apply_fn=None,
-            params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
+            params=criticparams or {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
             tx=optax.adam(learning_rate=self.critic_lr),
         )
 
@@ -290,7 +290,7 @@ class CRL:
         log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
         alpha_state = TrainState.create(
             apply_fn=None,
-            params={"log_alpha": log_alpha},
+            params=alphaparams or {"log_alpha": log_alpha},
             tx=optax.adam(learning_rate=self.alpha_lr),
         )
 
