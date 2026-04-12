@@ -12,7 +12,7 @@ method=carl
 env=ant
 
 for seed in 1; do
-
+  # --eval_only_path "checkpoints/42/AdamG1_damping0.1_seed4.pkl"
   XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
     --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 \
     --seed ${seed} --total_env_steps 10000000 --batch_size 256 --num_envs 512 \
