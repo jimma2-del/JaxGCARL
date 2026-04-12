@@ -73,6 +73,7 @@ class RunConfig:
 
     # render frequency
     visualization_interval: int = 5
+    save_interval: int = 5 # mark
 
     vis_length: int = 1000
     checkpoint_logdir: Optional[str] = None
