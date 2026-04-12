@@ -255,7 +255,10 @@ class CARL:
         )
 
         ### Network setup
-        
+        alphaparams, actorparams, criticparams = None, None, None
+        if config.eval_only_path:
+            alphaparams, actorparams, criticparams = load_params(config.eval_only_path)
+            
         # Actor - mark, making general functions for actor, actor state
         def gen_actor(action_size, actor_key):
             actor = Actor(
@@ -640,6 +643,20 @@ class CARL:
             t = time.time()
             
             key, epoch_key = jax.random.split(key)
+
+            if config.eval_only_path: # Mark eval (from saved parameters)
+                metrics = evaluator.run_evaluation(protag_training_state, {})
+                make_policy = lambda param: lambda obs, rng: protag_actor.apply(param, obs)
+                progress_fn(
+                    0,
+                    metrics,
+                    make_policy,
+                    protag_training_state.actor_state.params,
+                    unwrapped_env,
+                    do_render=False,
+                )
+                logging.info("Immediate-eval complete")
+                return
 
             protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
                 protag_training_state, antag_training_state, env_state, buffer_state, epoch_key
