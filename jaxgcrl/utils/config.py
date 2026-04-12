@@ -77,6 +77,7 @@ class RunConfig:
 
     vis_length: int = 1000
     checkpoint_logdir: Optional[str] = None
+    eval_only_path: Optional[str] = None
     max_devices_per_host: int = 1
     cuda: bool = True
 
