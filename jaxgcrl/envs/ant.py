@@ -12,7 +12,7 @@ from jax import numpy as jnp
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
 ## <mark import custom_spring_pipeline>
-from . import custom_spring_pipeline
+from .custom_spring import pipeline as custom_spring_pipeline
 ## </mark>
 
 class Ant(PipelineEnv):
