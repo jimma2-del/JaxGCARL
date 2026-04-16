@@ -33,6 +33,9 @@ from jaxgcrl.envs.pusher2 import Pusher2
 from jaxgcrl.envs.reacher import Reacher
 from jaxgcrl.envs.simple_maze import SimpleMaze
 
+from jaxgcrl.envs.ant_custom_masses import AntCustomMasses
+from jaxgcrl.envs.ant_custom_forces import AntCustomForces
+
 legal_envs = (
     "ant",
     "ant_random_start",
@@ -61,6 +64,9 @@ legal_envs = (
     "simple_u_maze",
     "simple_big_maze",
     "simple_hardest_maze",
+
+    "ant_custom_masses",
+    "ant_custom_forces",
 )
 
 
@@ -127,6 +133,14 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         env = ArmBinpickEasy(backend=backend or "mjx")
     elif env_name == "arm_binpick_hard":
         env = ArmBinpickHard(backend=backend or "mjx")
+
+    elif env_name == "ant_custom_masses":
+        if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
+        env = AntCustomMasses(backend="spring")
+    elif env_name == "ant_custom_forces":
+        if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
+        env = AntCustomForces(backend="spring")
+    
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env

@@ -11,8 +11,12 @@ from jax import numpy as jnp
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
+## <mark import custom_spring_pipeline>
+from .custom_spring import pipeline_custom_forces as custom_spring_pipeline
+from .custom_spring.base import State as CustomState
+## </mark>
 
-class Ant(PipelineEnv):
+class AntCustomForces(PipelineEnv):
     def __init__(
         self,
         ctrl_cost_weight=0.5,
@@ -35,6 +39,10 @@ class Ant(PipelineEnv):
 
         n_frames = 5
 
+        ## <mark ALWAYS USE THE SPRING BACKEND; WE MODIFY THE SPRING STEP FUNCTION TO ADD CUSTOM EXTERNAL FORCES>
+        backend = "spring"
+        ## </mark>
+
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
@@ -56,6 +64,11 @@ class Ant(PipelineEnv):
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
+
+        ## <mark override backend with custom spring backend>
+        self._backend = "custom-spring"
+        self._pipeline = custom_spring_pipeline
+        ## </mark>
 
         self._ctrl_cost_weight = ctrl_cost_weight
         self._use_contact_forces = use_contact_forces
@@ -120,6 +133,13 @@ class Ant(PipelineEnv):
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
+
+        ## <mark set new antag_action>
+        pipeline_state0 = pipeline_state0.replace(
+            antag_action=jnp.zeros((3)),
+        )
+        ## </mark>
+        
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt

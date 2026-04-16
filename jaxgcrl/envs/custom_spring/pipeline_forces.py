@@ -12,7 +12,12 @@ from brax.io import mjcf
 from brax.spring import collisions
 from brax.spring import integrator
 from brax.spring import joints
-from brax.spring.base import State
+
+## <mark use our custom State instead of default spring State>
+#from brax.spring.base import State
+from .base import State
+## </mark>
+
 import jax
 
 ## <mark custom imports>
@@ -52,7 +57,7 @@ def init(
     ## <mark change mass>
     #mass = mass.at[0].set(mass[0] * 100)
     #mass = mass.at[0].set(mass[0] * 0.1)
-    mass = mass * 0.5
+    #mass = mass * 0.5
     ## </mark>
     
     return State(
@@ -69,6 +74,10 @@ def init(
         a_c=a_c,
         i_inv=i_inv,
         mass=mass,
+
+        ## <mark add antag_action>
+        antag_action = jnp.zeros((3)),
+        ## </mark>
     )
 
 
@@ -102,7 +111,7 @@ def step(
         xf_i += fluid.force(sys, state.x, state.xd, state.mass, inertia)
     
     ## <mark apply custom forces>
-    #xf_i += make_ft(state, 0, state.x_i.pos[0] + jnp.array((1, 0, 0)), jnp.array((0, 0, 10)), jnp.array((0, 0, 0)))
+    xf_i += make_ft(state, 0, state.x_i.pos[0] + jnp.array((1, 0, 0)), jnp.array((0, 0, 10)), jnp.array((0, 0, 0)))
     ## </mark>
     
     xdd_i += Motion(
