@@ -12,13 +12,23 @@ from jax import numpy as jnp
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
 ## <mark import custom_spring_pipeline>
-from .custom_spring import pipeline_custom_forces as custom_spring_pipeline
-from .custom_spring.base import State as CustomState
+from .custom_spring import pipeline_custom_forces
+from .custom_spring import pipeline_custom_masses
+
+custom_pipelines = {
+    "forces": pipeline_custom_forces,
+    "masses": pipeline_custom_masses
+}
 ## </mark>
 
-class AntCustomForces(PipelineEnv):
+class AntCustom(PipelineEnv):
     def __init__(
         self,
+
+        ## <mark add parameter for which custom modification to enable>
+        custom_modification: str, # type is key of custom_pipelines
+        ## </mark>
+        
         ctrl_cost_weight=0.5,
         use_contact_forces=False,
         contact_cost_weight=5e-4,
@@ -38,10 +48,6 @@ class AntCustomForces(PipelineEnv):
         sys = mjcf.load(path)
 
         n_frames = 5
-
-        ## <mark ALWAYS USE THE SPRING BACKEND; WE MODIFY THE SPRING STEP FUNCTION TO ADD CUSTOM EXTERNAL FORCES>
-        backend = "spring"
-        ## </mark>
 
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
@@ -66,8 +72,11 @@ class AntCustomForces(PipelineEnv):
         super().__init__(sys=sys, backend=backend, **kwargs)
 
         ## <mark override backend with custom spring backend>
-        self._backend = "custom-spring"
-        self._pipeline = custom_spring_pipeline
+        if custom_modification not in custom_pipelines:
+            raise ValueError("custom_modification not found.")
+        
+        self._backend = f"custom-spring-{custom_modification}"
+        self._pipeline = custom_pipelines[custom_modification]
         ## </mark>
 
         self._ctrl_cost_weight = ctrl_cost_weight
@@ -133,12 +142,6 @@ class AntCustomForces(PipelineEnv):
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
-
-        ## <mark set new antag_action>
-        pipeline_state0 = pipeline_state0.replace(
-            antag_action=jnp.zeros((3)),
-        )
-        ## </mark>
         
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 

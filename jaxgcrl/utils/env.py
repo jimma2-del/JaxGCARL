@@ -33,8 +33,7 @@ from jaxgcrl.envs.pusher2 import Pusher2
 from jaxgcrl.envs.reacher import Reacher
 from jaxgcrl.envs.simple_maze import SimpleMaze
 
-from jaxgcrl.envs.ant_custom_masses import AntCustomMasses
-from jaxgcrl.envs.ant_custom_forces import AntCustomForces
+from jaxgcrl.envs.ant_custom import AntCustom
 
 legal_envs = (
     "ant",

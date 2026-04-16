@@ -13,10 +13,7 @@ from brax.spring import collisions
 from brax.spring import integrator
 from brax.spring import joints
 
-## <mark use our custom State instead of default spring State>
-#from brax.spring.base import State
-from .base import State
-## </mark>
+from brax.spring.base import State
 
 import jax
 
@@ -74,10 +71,6 @@ def init(
         a_c=a_c,
         i_inv=i_inv,
         mass=mass,
-
-        ## <mark add antag_action>
-        antag_action = jnp.zeros((3)),
-        ## </mark>
     )
 
 
