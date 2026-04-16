@@ -135,10 +135,10 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
 
     elif env_name == "ant_custom_masses":
         if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
-        env = AntCustomMasses(backend="spring")
+        env = AntCustomMasses(custom_modification="masses", backend="spring")
     elif env_name == "ant_custom_forces":
         if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
-        env = AntCustomForces(backend="spring")
+        env = AntCustomForces(custom_modification="forces", backend="spring")
     
     else:
         raise ValueError(f"Unknown environment: {env_name}")
