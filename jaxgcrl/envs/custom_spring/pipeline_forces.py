@@ -92,6 +92,11 @@ def step(
     x: updated link transform in world frame
     xd: updated link motion in world frame
     """
+
+    ## <mark act contains antag and protag act concatenated; split>
+    act, antag_act = jnp.split(act, (len(sys.actuator.ctrl_range), ))
+    ## </mark>
+    
     # pre-calculate some auxiliary terms used further down
     state = state.replace(i_inv=com.inv_inertia(sys, state.x))
     
