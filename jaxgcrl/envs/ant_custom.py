@@ -12,12 +12,12 @@ from jax import numpy as jnp
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
 ## <mark import custom_spring_pipeline>
-from .custom_spring import pipeline_custom_forces
-from .custom_spring import pipeline_custom_masses
+from .custom_spring import pipeline_forces
+from .custom_spring import pipeline_masses
 
 custom_pipelines = {
-    "forces": pipeline_custom_forces,
-    "masses": pipeline_custom_masses
+    "forces": pipeline_forces,
+    "masses": pipeline_masses
 }
 ## </mark>
 
