@@ -15,6 +15,8 @@ from brax.spring import joints
 
 from brax.spring.base import State
 
+from collision_frictions import resolve
+
 import jax
 
 ## <mark custom imports>
@@ -120,7 +122,7 @@ def step(
     # semi-implicit euler: apply acceleration update before resolving collisions
     state = state.replace(xd_i=state.xd_i + xdd_i * sys.opt.timestep)
     friction_scale = 1000000000
-    xdv_i = collisions.resolve(sys, state, friction_scale)
+    xdv_i = resolve(sys, state, friction_scale)
     
     # now integrate and update position/velocity-level terms
     x_i, xd_i = integrator.integrate(sys, state.x_i, state.xd_i, xdv_i)
