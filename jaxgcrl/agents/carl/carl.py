@@ -192,14 +192,15 @@ class CARL:
     ):
         self.check_config(config)
 
-        unwrapped_env = train_env
         train_env = TrajectoryIdWrapper(train_env)
         train_env = envs.training.wrap(
             train_env,
             episode_length=config.episode_length,
             action_repeat=config.action_repeat,
         )
-
+        
+        unwrapped_env = eval_env
+        
         eval_env = TrajectoryIdWrapper(eval_env)
         eval_env = envs.training.wrap(
             eval_env,
@@ -246,7 +247,7 @@ class CARL:
 
         # Dimensions definitions and sanity checks
         protag_action_size = train_env.action_size # MARK
-        antag_action_size = train_env.action_size # MARK
+        antag_action_size = 5 * 3 # train_env.action_size # MARK
         state_size = train_env.state_dim
         goal_size = len(train_env.goal_indices)
         obs_size = state_size + goal_size
@@ -403,7 +404,7 @@ class CARL:
 
             #raise Exception("Implement the net_action accordingly")
             #net_action = protag_actions # TODO edit net_action formation for forces, perhaps
-            net_action = jnp.concatenate((actions, op_actions), axis=1)
+            net_action = jnp.concatenate((protag_actions, antag_actions), axis=1)
             
             nstate = env.step(env_state, net_action)
             state_extras = {x: nstate.info[x] for x in extra_fields}

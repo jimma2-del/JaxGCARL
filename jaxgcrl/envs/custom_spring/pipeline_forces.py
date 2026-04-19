@@ -56,6 +56,25 @@ def init(
     #mass = mass.at[0].set(mass[0] * 0.1)
     #mass = mass * 0.5
     ## </mark>
+
+    ## <mark get ids>
+    # for i, name in enumerate(sys.link_names):
+    #     print(i, name)
+    ## </mark>
+    
+    # # Geometries
+    # for i, name in enumerate(sys.geom_names):
+    #     print(i, name)
+    
+    # # Joints
+    # for i, name in enumerate(sys.joint_names):
+    #     print(i, name)
+    # print("torso ID", sys.link_names.index("torso"))
+    # print("front_left_leg ID", sys.link_names.index("front_left_leg"))
+    # print("front_right_leg ID", sys.link_names.index("front_right_leg"))
+    # print("back_leg ID", sys.link_names.index("back_leg"))
+    # print("back_right_leg ID", sys.link_names.index("back_right_leg"))
+    ## </mark>
     
     return State(
         q=q,
@@ -109,7 +128,15 @@ def step(
         xf_i += fluid.force(sys, state.x, state.xd, state.mass, inertia)
     
     ## <mark apply custom forces>
-    xf_i += make_ft(state, 0, state.x_i.pos[0] + jnp.array((1, 0, 0)), jnp.array((0, 0, 10)), jnp.array((0, 0, 0)))
+    ANTAG_FORCE_LINK_INDICES = (0, 2, 4, 6, 8) # torso; feet
+    ANTAG_FORCE_SCALE = 20
+
+    #jax.debug.print("ANTAG_ACT SHAPE {s}", s=antag_act.shape)
+
+    for i, link_i in enumerate(ANTAG_FORCE_LINK_INDICES):
+        cur_force = antag_act[i*3 : (i+1)*3] * ANTAG_FORCE_SCALE
+        #jax.debug.print("ANTAG_FORCE {link_i}: {f}", link_i=link_i, f=cur_force)
+        xf_i += make_ft(state, link_i, state.x_i.pos[link_i], cur_force, jnp.array((0, 0, 0)))
     ## </mark>
     
     xdd_i += Motion(

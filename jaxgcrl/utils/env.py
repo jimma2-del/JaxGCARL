@@ -134,11 +134,11 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         env = ArmBinpickHard(backend=backend or "mjx")
 
     elif env_name == "ant_custom_masses":
-        if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
-        env = AntCustomMasses(custom_modification="masses", backend="spring")
+        if backend and backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
+        env = AntCustom(custom_modification="masses", backend="spring")
     elif env_name == "ant_custom_forces":
-        if backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
-        env = AntCustomForces(custom_modification="forces", backend="spring")
+        if backend and backend != "spring": raise ValueError("Backend must be 'spring' for environments with custom forces/masses/friction.")
+        env = AntCustom(custom_modification="forces", backend="spring")
     
     else:
         raise ValueError(f"Unknown environment: {env_name}")
