@@ -129,7 +129,7 @@ def step(
     
     ## <mark apply custom forces>
     ANTAG_FORCE_LINK_INDICES = (0, 2, 4, 6, 8) # torso; feet
-    ANTAG_FORCE_SCALE = 20
+    ANTAG_FORCE_SCALE = 0.5
 
     #jax.debug.print("ANTAG_ACT SHAPE {s}", s=antag_act.shape)
 
