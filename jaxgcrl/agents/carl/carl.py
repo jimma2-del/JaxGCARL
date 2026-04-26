@@ -261,7 +261,10 @@ class CARL:
         )
 
         ### Network setup
-        
+        alphaparams, actorparams, criticparams = None, None, None
+        if config.eval_only_path:
+            alphaparams, actorparams, criticparams = load_params(config.eval_only_path)
+            
         # Actor - mark, making general functions for actor, actor state
         def gen_actor(action_size, actor_key):
             actor = Actor(
@@ -273,7 +276,7 @@ class CARL:
             )
             actor_state = TrainState.create(
                 apply_fn=actor.apply,
-                params=actor.init(actor_key, np.ones([1, obs_size])),
+                params=actorparams or actor.init(actor_key, np.ones([1, obs_size])),
                 tx=optax.adam(learning_rate=self.policy_lr),
             )
             return actor, actor_state
@@ -303,7 +306,7 @@ class CARL:
             g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
             critic_state = TrainState.create(
                 apply_fn=None,
-                params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
+                params=criticparams or {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
                 tx=optax.adam(learning_rate=self.critic_lr),
             )
 
@@ -320,7 +323,7 @@ class CARL:
             log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
             alpha_state = TrainState.create(
                 apply_fn=None,
-                params={"log_alpha": log_alpha},
+                params=alphaparams or {"log_alpha": log_alpha},
                 tx=optax.adam(learning_rate=self.alpha_lr),
             )
             return target_entropy, log_alpha, alpha_state
@@ -648,6 +651,20 @@ class CARL:
             
             key, epoch_key = jax.random.split(key)
 
+            if config.eval_only_path: # Mark eval (from saved parameters)
+                metrics = evaluator.run_evaluation(protag_training_state, {})
+                make_policy = lambda param: lambda obs, rng: protag_actor.apply(param, obs)
+                progress_fn(
+                    0,
+                    metrics,
+                    make_policy,
+                    protag_training_state.actor_state.params,
+                    unwrapped_env,
+                    do_render=False,
+                )
+                logging.info("Immediate-eval complete")
+                return
+
             protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
                 protag_training_state, antag_training_state, env_state, buffer_state, epoch_key
             )
@@ -682,7 +699,7 @@ class CARL:
                 do_render=do_render,
             )
 
-            if config.checkpoint_logdir:
+            if config.checkpoint_logdir and ne % config.save_interval == 0:
                 # Save current policy and critic params.
                 params = (
                     protag_training_state.alpha_state.params,
@@ -691,6 +708,17 @@ class CARL:
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(protag_training_state.env_steps)}.pkl"
                 save_params(path, params)
+
+        # mark last step
+        if config.checkpoint_logdir:
+            # Save current policy and critic params.
+            params = (
+                training_state.alpha_state.params,
+                training_state.actor_state.params,
+                training_state.critic_state.params,
+            )
+            path = f"{config.checkpoint_logdir}/final_{int(training_state.env_steps)}.pkl"
+            save_params(path, params)
 
 
         total_steps = current_step

@@ -242,6 +242,10 @@ class CRL:
         )
 
         # Network setup
+        alphaparams, actorparams, criticparams = None, None, None
+        if config.eval_only_path:
+            alphaparams, actorparams, criticparams = load_params(config.eval_only_path)
+            
         # Actor
         actor = Actor(
             action_size=action_size,
@@ -252,7 +256,7 @@ class CRL:
         )
         actor_state = TrainState.create(
             apply_fn=actor.apply,
-            params=actor.init(actor_key, np.ones([1, obs_size])),
+            params=actorparams or actor.init(actor_key, np.ones([1, obs_size])),
             tx=optax.adam(learning_rate=self.policy_lr),
         )
 
@@ -277,7 +281,7 @@ class CRL:
         g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
         critic_state = TrainState.create(
             apply_fn=None,
-            params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
+            params=criticparams or {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
             tx=optax.adam(learning_rate=self.critic_lr),
         )
 
@@ -286,7 +290,7 @@ class CRL:
         log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
         alpha_state = TrainState.create(
             apply_fn=None,
-            params={"log_alpha": log_alpha},
+            params=alphaparams or {"log_alpha": log_alpha},
             tx=optax.adam(learning_rate=self.alpha_lr),
         )
 
@@ -552,6 +556,20 @@ class CRL:
 
             key, epoch_key = jax.random.split(key)
 
+            if config.eval_only_path: # Mark eval for loading parameters
+                metrics = evaluator.run_evaluation(training_state, {})
+                make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)
+                progress_fn(
+                    0,
+                    metrics,
+                    make_policy,
+                    training_state.actor_state.params,
+                    unwrapped_env,
+                    do_render=False,
+                )
+                logging.info("Immediate-eval complete")
+                return
+
             training_state, env_state, buffer_state, metrics = training_epoch(
                 training_state, env_state, buffer_state, epoch_key
             )
@@ -586,7 +604,7 @@ class CRL:
                 do_render=do_render,
             )
 
-            if config.checkpoint_logdir:
+            if config.checkpoint_logdir and ne % config.save_interval == 0:
                 # Save current policy and critic params.
                 params = (
                     training_state.alpha_state.params,
@@ -595,6 +613,17 @@ class CRL:
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
                 save_params(path, params)
+
+        # mark last step
+        if config.checkpoint_logdir:
+            # Save current policy and critic params.
+            params = (
+                training_state.alpha_state.params,
+                training_state.actor_state.params,
+                training_state.critic_state.params,
+            )
+            path = f"{config.checkpoint_logdir}/final_{int(training_state.env_steps)}.pkl"
+            save_params(path, params)
 
         total_steps = current_step
         assert total_steps >= config.total_env_steps

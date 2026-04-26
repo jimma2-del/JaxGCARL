@@ -73,9 +73,11 @@ class RunConfig:
 
     # render frequency
     visualization_interval: int = 5
+    save_interval: int = 5 # mark
 
     vis_length: int = 1000
     checkpoint_logdir: Optional[str] = None
+    eval_only_path: Optional[str] = None
     max_devices_per_host: int = 1
     cuda: bool = True
 
