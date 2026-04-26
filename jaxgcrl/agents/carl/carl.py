@@ -713,11 +713,11 @@ class CARL:
         if config.checkpoint_logdir:
             # Save current policy and critic params.
             params = (
-                training_state.alpha_state.params,
-                training_state.actor_state.params,
-                training_state.critic_state.params,
+                protag_training_state.alpha_state.params,
+                protag_training_state.actor_state.params,
+                protag_training_state.critic_state.params,
             )
-            path = f"{config.checkpoint_logdir}/final_{int(training_state.env_steps)}.pkl"
+            path = f"{config.checkpoint_logdir}/final_{int(protag_training_state.env_steps)}.pkl"
             save_params(path, params)
 
 
