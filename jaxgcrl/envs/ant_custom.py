@@ -14,10 +14,12 @@ from jax import numpy as jnp
 ## <mark import custom_spring_pipeline>
 from .custom_spring import pipeline_forces
 from .custom_spring import pipeline_masses
+from.custom_spring import pipeline_friction
 
 custom_pipelines = {
     "forces": pipeline_forces,
-    "masses": pipeline_masses
+    "masses": pipeline_masses,
+    "friction": pipeline_friction
 }
 ## </mark>
 
