@@ -28,7 +28,7 @@ Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
-#import os
+import os
 #os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
 
 # Unifying Functions Building
@@ -663,6 +663,24 @@ class CARL:
                     do_render=False,
                 )
                 logging.info("Immediate-eval complete")
+
+                # Mark
+                filename = "dataCARL.txt"
+                fileExists = os.path.isfile(filename)
+                
+                with open(filename, "a+") as f:
+                    if not fileExists: # If file is empty/was just created:
+                        f.write("seed,")
+                        for metricName in metrics:
+                            f.write(metricName + ",")
+                        f.write("\n")
+                        
+                    # Add run data
+                    f.write(str(config.seed)+",")
+                    for metricName, metric in metrics.items():
+                        f.write(str(float(metric)) + ",")
+                    f.write("\n")
+                    
                 return
 
             protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
