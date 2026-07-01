@@ -24,6 +24,8 @@ from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 
+import os
+
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
@@ -568,6 +570,24 @@ class CRL:
                     do_render=False,
                 )
                 logging.info("Immediate-eval complete")
+
+                # Mark
+                filename = "dataForCRL.txt"
+                fileExists = os.path.isfile(filename)
+                
+                with open(filename, "a+") as f:
+                    if not fileExists: # If file is empty/was just created:
+                        f.write("seed,")
+                        for metricName in metrics:
+                            f.write(metricName + ",")
+                        f.write("\n")
+                        
+                    # Add run data
+                    f.write(str(config.seed)+",")
+                    for metricName, metric in metrics.items():
+                        f.write(str(float(metric)) + ",")
+                    f.write("\n")
+                    
                 return
 
             training_state, env_state, buffer_state, metrics = training_epoch(
