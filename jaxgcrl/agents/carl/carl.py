@@ -235,7 +235,7 @@ class CARL:
         random.seed(config.seed)
         np.random.seed(config.seed)
         key = jax.random.PRNGKey(config.seed)
-        # mark: Not using 2 buffers or 2 env type keys or 2 main keys, but otherwise duplicating keys
+        # going to use 2 buffer and env_state keys
         (
             key, buffer_key, eval_env_key, env_key, protag_actor_key, antag_actor_key, protag_sa_key, antag_sa_key,
             protag_g_key, antag_g_key
