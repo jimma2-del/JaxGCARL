@@ -9,13 +9,13 @@ eval "$(conda shell.bash hook)"
 conda activate jaxgcrl
 
 method=carl
-env=ant_custom_forces
+env=ant
 eval_env=ant
 
 for seed in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
   # --eval_only_path "checkpoints/42/AdamG1_damping0.1_seed4.pkl"
   XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
-    --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 \
+    --wandb_project_name final --wandb_group tempSplitNoLoop --exp_name "tempSplitNoLoop_${seed}" --num_evals 50 \
     --seed ${seed} --total_env_steps 10000000 --batch_size 256 --num_envs 512 \
     --discounting 0.99 --action_repeat 1 --env ${env} --eval_env ${eval_env} --checkpoint_logdir "checkpoints/${seed}" --save_interval 5 \
     --episode_length 1000 --unroll_length 62  --min_replay_size 1000 --max_replay_size 10000 \

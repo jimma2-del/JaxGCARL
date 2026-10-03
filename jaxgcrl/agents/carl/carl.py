@@ -237,19 +237,21 @@ class CARL:
         key = jax.random.PRNGKey(config.seed)
         # going to use 2 buffer and env_state keys
         (
-            key, buffer_key, eval_env_key, env_key, protag_actor_key, antag_actor_key, protag_sa_key, antag_sa_key,
+            key, protag_buffer_key, antag_buffer_key, eval_env_key, protag_env_key, antag_env_key, protag_actor_key, antag_actor_key, protag_sa_key, antag_sa_key,
             protag_g_key, antag_g_key
-        ) = jax.random.split(key, 10)
+        ) = jax.random.split(key, 12)
 
-        env_keys = jax.random.split(env_key, config.num_envs)
-        env_state = jax.jit(train_env.reset)(env_keys)
+        protag_env_keys = jax.random.split(protag_env_key, config.num_envs)
+        antag_env_keys = jax.random.split(antag_env_key, config.num_envs)
+        protag_env_state = jax.jit(train_env.reset)(protag_env_keys)
+        antag_env_state = jax.jit(train_env.reset)(antag_env_keys)
         train_env.step = jax.jit(train_env.step)
 
         # Dimensions definitions and sanity checks
         protag_action_size = train_env.action_size # MARK
 
-        raise Exception("Implement the antag_action_size accordingly")
-        #antag_action_size = train_env.action_size # if using antag adding to acitons MARK
+        #raise Exception("Implement the antag_action_size accordingly")
+        antag_action_size = train_env.action_size # if using antag adding to acitons MARK
         #antag_action_size = 5 * 3 # if using antag forces = MARK
 
         
@@ -373,7 +375,7 @@ class CARL:
             buffer.sample_internal = jax.jit(buffer.sample_internal)
             return buffer
 
-        replay_buffer = jit_wrap(
+        protag_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
@@ -382,7 +384,18 @@ class CARL:
                 episode_length=config.episode_length,
             )
         )
-        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        protag_buffer_state = jax.jit(protag_replay_buffer.init)(protag_buffer_key)
+
+        antag_replay_buffer = jit_wrap(
+            TrajectoryUniformSamplingQueue(
+                max_replay_size=self.max_replay_size,
+                dummy_data_sample=dummy_transition,
+                sample_batch_size=self.batch_size,
+                num_envs=config.num_envs,
+                episode_length=config.episode_length,
+            )
+        )
+        antag_buffer_state = jax.jit(antag_replay_buffer.init)(antag_buffer_key)
 
         def deterministic_actor_step(training_state, env, env_state, extra_fields):
             means, _ = protag_actor.apply(training_state.actor_state.params, env_state.obs)
@@ -410,8 +423,8 @@ class CARL:
             antag_stds = jnp.exp(antag_log_stds)
             antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
-            raise Exception("Implement the net_action accordingly")
-            #net_action = protag_actions # TODO edit net_action formation for forces, perhaps
+            # raise Exception("Implement the net_action accordingly")
+            net_action = protag_actions # TODO edit net_action formation for forces, perhaps
             #net_action = jnp.concatenate((protag_actions, antag_actions), axis=1)
             
             nstate = env.step(env_state, net_action)
@@ -426,8 +439,8 @@ class CARL:
                 extras={"state_extras": state_extras},
             )
 
-        @jax.jit
-        def get_experience(pro_actor_state, ant_actor_state, env_state, buffer_state, key): # mark
+        @functools.partial(jax.jit, static_argnames=("is_antag_flag"))
+        def get_experience(pro_actor_state, ant_actor_state, env_state, buffer_state, key, is_antag_flag): # mark
             @jax.jit
             def f(carry, unused_t):
                 env_state, current_key = carry
@@ -443,11 +456,12 @@ class CARL:
                 return (env_state, next_key), transition
 
             (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
-           
+
+            replay_buffer = antag_replay_buffer if is_antag_flag else protag_replay_buffer
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
 
-        def prefill_replay_buffer(pro_training_state, ant_training_state, env_state, buffer_state, key): # mark
+        def prefill_replay_buffer(pro_training_state, ant_training_state, env_state, buffer_state, key, is_antag_flag): # mark
             @jax.jit
             def f(carry, unused):
                 del unused
@@ -459,6 +473,7 @@ class CARL:
                     env_state,
                     buffer_state,
                     key,
+                    is_antag_flag
                 )
                 pro_training_state = pro_training_state.replace(
                     env_steps=pro_training_state.env_steps + env_steps_per_actor_step,
@@ -532,6 +547,7 @@ class CARL:
                 env_state,
                 buffer_state,
                 experience_key1,
+                network_info[0] # is_antag_flag
             )
 
             primary_training_state = primary_training_state.replace( # Mark
@@ -539,6 +555,7 @@ class CARL:
             )
 
             # sample actor-step worth of transitions
+            replay_buffer = antag_replay_buffer if network_info[0] else protag_replay_buffer
             buffer_state, transitions = replay_buffer.sample(buffer_state)
 
             # process transitions for training
@@ -579,8 +596,10 @@ class CARL:
         def training_epoch(
             pro_training_state,
             ant_training_state,
-            env_state,
-            buffer_state,
+            pro_env_state,
+            ant_env_state,
+            pro_buffer_state,
+            ant_buffer_state,
             key,
         ):
             @jax.jit
@@ -611,28 +630,35 @@ class CARL:
                 ) = training_step(ts, pro_training_state, ts, es, bs, train_key, (True, antag_action_size))
                 return (ts, es, bs, k), metrics
 
-            (pro_training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
+            (pro_training_state, pro_env_state, pro_buffer_state, key), metrics = jax.lax.scan(
                 f,
-                (pro_training_state, env_state, buffer_state, key),
+                (pro_training_state, pro_env_state, pro_buffer_state, key),
                 (),
                 length=num_training_steps_per_epoch,
             )
 
-            (ant_training_state, env_state, buffer_state, key), antag_metrics = jax.lax.scan(
-                g,
-                (ant_training_state, env_state, buffer_state, key),
-                (),
-                length=num_training_steps_per_epoch,
-            )
+            # (ant_training_state, ant_env_state, ant_buffer_state, key), antag_metrics = jax.lax.scan(
+            #     g,
+            #     (ant_training_state, ant_env_state, ant_buffer_state, key),
+            #     (),
+            #     length=num_training_steps_per_epoch,
+            # )
+            antag_metrics = {}
 
-            metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            antag_metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            return pro_training_state, ant_training_state, env_state, buffer_state, metrics, antag_metrics # Mark: Return antag_metrics if the antag loop is running
+            metrics["buffer_current_size"] = protag_replay_buffer.size(protag_buffer_state)
+            antag_metrics["buffer_current_size"] = antag_replay_buffer.size(antag_buffer_state)
+            return pro_training_state, ant_training_state, pro_env_state, ant_env_state, pro_buffer_state, ant_buffer_state, metrics, antag_metrics # Mark: Return antag_metrics if the antag loop is running
         
-        key, prefill_key = jax.random.split(key, 2)
+        key, protag_prefill_key = jax.random.split(key, 2)
 
-        protag_training_state, antag_training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-            protag_training_state, antag_training_state, env_state, buffer_state, prefill_key
+        protag_training_state, antag_training_state, protag_env_state, protag_buffer_state, _ = prefill_replay_buffer(
+            protag_training_state, antag_training_state, protag_env_state, protag_buffer_state, protag_prefill_key, False
+        )
+
+        key, antag_prefill_key = jax.random.split(key, 2)
+
+        protag_training_state, antag_training_state, antag_env_state, antag_buffer_state, _ = prefill_replay_buffer(
+            protag_training_state, antag_training_state, antag_env_state, antag_buffer_state, antag_prefill_key, True
         )
 
         """Setting up evaluator"""
@@ -683,8 +709,8 @@ class CARL:
                     
                 return
 
-            protag_training_state, antag_training_state, env_state, buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
-                protag_training_state, antag_training_state, env_state, buffer_state, epoch_key
+            protag_training_state, antag_training_state, protag_env_state, antag_env_state, protag_buffer_state, antag_buffer_state, metrics, antag_metrics = training_epoch( # Important note: antag_metrics are unused
+                protag_training_state, antag_training_state, protag_env_state, antag_env_state, protag_buffer_state, antag_buffer_state, epoch_key
             )
             
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
