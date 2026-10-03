@@ -12,7 +12,7 @@ method=carl
 env=ant_custom_forces
 eval_env=ant
 
-for seed in 1; do
+for seed in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
   # --eval_only_path "checkpoints/42/AdamG1_damping0.1_seed4.pkl"
   XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
     --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 \
@@ -47,8 +47,7 @@ echo "All runs have finished."
 #env=ant
 #eval_env=ant_custom_masses
 #
-#for seed in 1 2 3 4 5 6 ; do
-#  # 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50
+#for seed in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
 #  XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
 #    --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 --num_eval_envs 2048 \
 #    --seed ${seed} --total_env_steps 10000000 --batch_size 256 --num_envs 512 \
