@@ -424,7 +424,7 @@ class CARL:
             antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
             # raise Exception("Implement the net_action accordingly")
-            net_action = protag_actions # TODO edit net_action formation for forces, perhaps
+            net_action = protag_actions + 0.10 * antag_actions # TODO edit net_action formation for forces, perhaps
             #net_action = jnp.concatenate((protag_actions, antag_actions), axis=1)
             
             nstate = env.step(env_state, net_action)
@@ -637,13 +637,13 @@ class CARL:
                 length=num_training_steps_per_epoch,
             )
 
-            # (ant_training_state, ant_env_state, ant_buffer_state, key), antag_metrics = jax.lax.scan(
-            #     g,
-            #     (ant_training_state, ant_env_state, ant_buffer_state, key),
-            #     (),
-            #     length=num_training_steps_per_epoch,
-            # )
-            antag_metrics = {}
+            (ant_training_state, ant_env_state, ant_buffer_state, key), antag_metrics = jax.lax.scan(
+                g,
+                (ant_training_state, ant_env_state, ant_buffer_state, key),
+                (),
+                length=num_training_steps_per_epoch,
+            )
+            # antag_metrics = {}
 
             metrics["buffer_current_size"] = protag_replay_buffer.size(protag_buffer_state)
             antag_metrics["buffer_current_size"] = antag_replay_buffer.size(antag_buffer_state)
