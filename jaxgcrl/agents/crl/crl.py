@@ -541,6 +541,9 @@ class CRL:
         training_state, env_state, buffer_state, _ = prefill_replay_buffer(
             training_state, env_state, buffer_state, prefill_key
         )
+        training_state = training_state.replace( # Update to correlate with SplitGCARL for CRL
+            env_steps=training_state.env_steps + num_prefill_env_steps + 27648, # magic number is a minor correction for the actual number of prefill steps due to the use of ceil(...) in num_prefill_actor_steps
+        )
 
         """Setting up evaluator"""
         evaluator = ActorEvaluator(
@@ -572,7 +575,7 @@ class CRL:
                 logging.info("Immediate-eval complete")
 
                 # Mark
-                filename = "dataForCRL.txt"
+                filename = config.wandb_group + "_evalData.txt"
                 fileExists = os.path.isfile(filename)
                 
                 with open(filename, "a+") as f:

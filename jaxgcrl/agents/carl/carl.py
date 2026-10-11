@@ -691,7 +691,7 @@ class CARL:
                 logging.info("Immediate-eval complete")
 
                 # Mark
-                filename = "dataCARL.txt"
+                filename = config.wandb_group + "_evalData.txt"
                 fileExists = os.path.isfile(filename)
                 
                 with open(filename, "a+") as f:

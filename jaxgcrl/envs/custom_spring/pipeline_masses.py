@@ -54,7 +54,7 @@ def init(
     ## <mark change mass>
     #mass = mass.at[0].set(mass[0] * 100)
     #mass = mass.at[0].set(mass[0] * 0.1)
-    mass = mass * 0.5
+    mass = mass * 0.95
     ## </mark>
     
     return State(
