@@ -251,8 +251,8 @@ class CARL:
         protag_action_size = train_env.action_size # MARK
 
         #raise Exception("Implement the antag_action_size accordingly")
-        antag_action_size = train_env.action_size # if using antag adding to acitons MARK
-        #antag_action_size = 5 * 3 # if using antag forces = MARK
+        # antag_action_size = train_env.action_size # if using antag adding to acitons MARK
+        antag_action_size = 5 * 3 # if using antag forces = MARK
 
         
         state_size = train_env.state_dim
@@ -424,8 +424,8 @@ class CARL:
             antag_actions = nn.tanh(antag_means + antag_stds * jax.random.normal(ant_key, shape=antag_means.shape, dtype=antag_means.dtype)) # mark removed damping, should be placed in net_action
 
             # raise Exception("Implement the net_action accordingly")
-            net_action = protag_actions + 0.10 * antag_actions # TODO edit net_action formation for forces, perhaps
-            #net_action = jnp.concatenate((protag_actions, antag_actions), axis=1)
+            # net_action = protag_actions + 0.10 * antag_actions # TODO edit net_action formation for forces, perhaps
+            net_action = jnp.concatenate((protag_actions, antag_actions), axis=1)
             
             nstate = env.step(env_state, net_action)
             state_extras = {x: nstate.info[x] for x in extra_fields}

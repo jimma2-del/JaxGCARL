@@ -9,15 +9,15 @@ eval "$(conda shell.bash hook)"
 conda activate jaxgcrl
 
 method=carl
-env=ant
+env=ant_custom_forces
 eval_env=ant
-run_name="splitGCARL0.10"
+run_name="splitGCARLforces5"
 
 mkdir -p "checkpoints_${run_name}"
 #  1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50
-for seed in 25; do
+for seed in 1 2 3 4 5; do
     mkdir "checkpoints_${run_name}/${seed}"
-  # --eval_only_path "checkpoints/42/AdamG1_damping0.1_seed4.pkl"
+  # --eval_only_path "checkpoints/42/AdamG1_damping0.1_seed4.pkl" \
   XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python run.py "$method" \
     --wandb_project_name final --wandb_group ${run_name} --exp_name "${run_name}_${seed}" --num_evals 50 \
     --seed ${seed} --total_env_steps 10000000 --batch_size 256 --num_envs 512 \
